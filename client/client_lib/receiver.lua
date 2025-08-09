@@ -52,6 +52,15 @@ function M.send_server_player(code, loop_mode)
     os.queueEvent('sync_state') -- server already automatically send state update response 
 end
 
+function M.toggle_play_mute()
+    CSTATE.is_paused = false
+    if CSTATE.volume == 0 then
+        CSTATE.volume = 1.5 -- TODO: restore to last value
+    else
+        CSTATE.volume = 0
+    end
+end
+
 function M.toggle_play_pause()
 
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil

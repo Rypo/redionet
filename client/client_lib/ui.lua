@@ -29,7 +29,8 @@ config.tabs = { " Now Playing ", " Search " }
 -- UI layout constants
 config.ui = {
     -- Now Playing Tab
-    play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop " },
+    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop " },
+    play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Mute " },
     skip_button = { x = 9, y = 6, width = 6, label = " Skip " },
     -- loop_button = { x = 16, y = 6, width = 12, labels = { " Loop Off ", " Loop Queue ", " Loop Song " } },
     loop_button = { x = 16, y = 6, width = 11, labels = { " Loop Off ", " Loop List ", " Loop Song " } },
@@ -147,7 +148,8 @@ local function draw_now_playing_tab()
     -- term.setTextColor(btn_color)
     term.setTextColor(config.colors.white) -- client play/stop always enabled
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
-    term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
+    -- term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
+    term.write((CSTATE.volume ~= 0) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
 
     -- Skip
     local skip_enabled = CSTATE.server_state.status > -1 --active_song_meta or #queue > 0
@@ -476,7 +478,8 @@ local function handle_click(button, x, y)
             local buttons_enabled = CSTATE.server_state.status > -1
             
             if is_in_box(x, y, config.ui.play_button) then
-                receiver.toggle_play_pause() -- local play/pause
+                -- receiver.toggle_play_pause() -- local play/pause
+                receiver.toggle_play_mute()
             
             elseif is_in_box(x, y, config.ui.skip_button) and buttons_enabled then
                 -- receiver.send_skip_song()
