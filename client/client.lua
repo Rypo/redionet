@@ -21,7 +21,23 @@ end
 
 
 HOST_NAME = 'client_'..os.getComputerID()
-rednet.host('PROTO_AUDIO', HOST_NAME)
+
+local has_speaker = peripheral.find("speaker")
+if has_speaker then
+    rednet.host('PROTO_AUDIO', HOST_NAME)
+else
+    -- Recent CC:tweaked versions may support two peripherals on pocket - https://github.com/cc-tweaked/CC-Tweaked/commit/0a0c80d
+    local no_warn = pocket and not pocket.equipBottom
+    if no_warn then
+        print('Pocket Client (communication only)')
+    else
+        local prev_color = term.getTextColor()
+        term.setTextColor(colors.orange)
+        print('WARN: No speaker attached. To receive audio on this device, attach speaker and reboot.')
+        term.setTextColor(prev_color)
+    end
+end
+
 -- rednet.host('PROTO_UI', HOST_NAME)
 
 SERVER_ID = wait_heartbeat()
@@ -83,55 +99,26 @@ local function client_loop()
             end,
             function ()
                 os.pullEvent('host_audio')
-                rednet.host('PROTO_AUDIO', HOST_NAME) -- suprisingly expensive, too disruptive for sync call between UI 
+                if has_speaker then
+                    rednet.host('PROTO_AUDIO', HOST_NAME) -- suprisingly expensive, too disruptive for sync call between UI 
+                end
+                
             end
         )
 
     end
 
-end
-
-local function client_event_loop()
-    while true do
-        -- eventData = { os.pullEvent() }
-        -- if eventData[1] == 'sync_state' then
-        --     local id, sub_state = rednet.receive('PROTO_SUB_STATE', timeout)
-        --     if sub_state then
-        --         CSTATE.server_state = sub_state -- avoid setting nil
-        --     end
-        -- end
-        
-        --[[
-            Client Event -> Server Message 
-        ]]
-        parallel.waitForAny(
-            function ()
-                os.pullEvent('sync_state')
-                rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
-            end,
-            function ()
-                os.pullEvent('host_audio')
-                rednet.host('PROTO_AUDIO', HOST_NAME) -- suprisingly expensive, too disruptive for sync call between UI 
-            end
-        )
-        -- os.pullEvent('sync_state')
-        -- rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_STATE")
-        -- local id, sub_state = rednet.receive('PROTO_SUB_STATE')
-        -- if sub_state then
-        --     CSTATE.server_state = sub_state -- avoid setting nil
-        --     os.queueEvent('redraw_screen')
-        -- end
-    end
 end
 
 receiver.update_server_state(true) -- get initial server state before proceeding
 
 
-
-parallel.waitForAny(
+local client_functions = {
     client_loop,
-    -- client_event_loop,
     ui.ui_loop,
-    receiver.receive_loop,
     net.http_search_loop
-)
+}
+if has_speaker then table.insert(client_functions, receiver.receive_loop) end
+
+
+parallel.waitForAny(table.unpack(client_functions))

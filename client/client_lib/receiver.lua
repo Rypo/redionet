@@ -1,16 +1,15 @@
-
--- peripheral.find("modem", rednet.open)
-
--- local host_name = 'receiver_'..os.getComputerID()
-
--- rednet.host('PROTO_AUDIO', host_name)
-
 local speaker = peripheral.find("speaker")
-local speaker_name = peripheral.getName(speaker)
-
 local monitor = peripheral.find("monitor")
 
 local decoder = require("cc.audio.dfpwm").make_decoder()
+
+
+if not speaker then
+    -- stub for coms only pocket. TODO: Sensible coms only api.
+    speaker = {
+        stop = function () end
+    }
+end
 
 local M = {}
 
@@ -102,16 +101,12 @@ function M.receive_loop()
         if msg_code == 'HALT' then
             speaker.stop()
             os.queueEvent("playback_stopped")
-            -- print(('(%s) HALT received'):format(os.date("%H:%M:%S")))
-            
             rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT')
 
         else --if msg_code == 'PLAY' then
             if not CSTATE.is_paused then
-                
                 local buffer, sub_state = table.unpack(payload)
                 play_audio(buffer, sub_state)
-                -- print(('(%s) chunk play complete'):format(os.date("%H:%M:%S")))
                 
                 rednet.send(id, "request_next_chunk", 'PROTO_AUDIO_NEXT')
             else
