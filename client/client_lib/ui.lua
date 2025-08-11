@@ -58,6 +58,16 @@ M.state.loop_mode = 0
 -- Local only
 M.state.search_items_visible = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
 M.state.hl_idx = nil
+M.state.sr_menu = {
+    items = {
+        config.ui.menu_play_now,
+        config.ui.menu_play_next,
+        config.ui.menu_add_to_queue,
+        config.ui.menu_cancel
+    },
+    hl_idx = 3,
+}
+
 
 local function draw_tabs()
     term.setCursorPos(1, 1)
@@ -231,7 +241,7 @@ local function search_result_subset()
     end
     local idx_end = math.min(idx_start+n_items, #CSTATE.search_results)
 
-    local sr_subset = {}
+    local sr_subset = {} -- TODO: this could be simplifed to an offset and length
     for i= 1+idx_start, idx_end do
         -- sr_subset[i] = CSTATE.search_results[i]
         table.insert(sr_subset, i)
@@ -240,7 +250,7 @@ local function search_result_subset()
 
 end
 
-local pretty = require("cc.pretty")
+
 local function write_search_results(idx_start, n_display)
     idx_start = idx_start or 0
     n_display = n_display or M.state.search_items_visible -- 6
@@ -335,6 +345,24 @@ local function draw_search_tab()
     end
 end
 
+local function write_play_options()
+    local bgcol, txtcol = config.colors.gray, config.colors.white
+
+    for i, item in ipairs(M.state.sr_menu.items) do
+        
+        if i == M.state.sr_menu.hl_idx then
+            term.setBackgroundColor(txtcol) -- invert
+            term.setTextColor(bgcol)
+        else
+            term.setBackgroundColor(bgcol)
+            term.setTextColor(txtcol)
+        end
+        term.setCursorPos(item.x, item.y)
+        term.clearLine() -- Write full length of term
+        term.write(item.label)
+    end
+end
+
 local function draw_search_result_menu()
     term.setBackgroundColor(config.colors.black)
     term.clear() -- temp removes tabs: [Now Playing ] [ Search ]
@@ -350,20 +378,7 @@ local function draw_search_result_menu()
     term.write(result.artist)
     -- write(result.artist)
 
-    term.setBackgroundColor(config.colors.gray)
-    term.setTextColor(config.colors.white)
-
-    local menu_items = {
-        config.ui.menu_play_now,
-        config.ui.menu_play_next,
-        config.ui.menu_add_to_queue,
-        config.ui.menu_cancel
-    }
-    for _, item in ipairs(menu_items) do
-        term.setCursorPos(item.x, item.y)
-        term.clearLine() -- Write full length of term
-        term.write(item.label)
-    end
+    write_play_options()
 end
 
 ---refresh client ui
@@ -450,14 +465,19 @@ local function handle_click(button, x, y)
             -- receiver.send_add_queue(result)
         end
 
-        M.state.in_search_result_view = false
-
         if btn_clicked then
             delay_flash(btn_clicked)
         end
 
+        M.state.in_search_result_view = false
+        M.state.sr_menu.hl_idx = 3 -- reset back to default
+
         M.redraw_screen()
-        receiver.send_server_queue(result, code)
+
+        if code then
+            receiver.send_server_queue(result, code)
+        end
+        
         return
     end
 
@@ -540,19 +560,39 @@ local function handle_key_press(key, is_held)
             return
 
         
-        elseif CSTATE.search_results and not M.state.in_search_result_view then -- Search results navigation
-            if key_name == "down" then
-                M.state.hl_idx = (M.state.hl_idx == nil and 1) or math.min(M.state.hl_idx+1, #CSTATE.search_results)
-                write_search_results()
+        elseif CSTATE.search_results then -- Search results navigation
+            local n_options = #M.state.sr_menu.items -- [Now, Next, Add queue, Cancel] 
             
-            elseif key_name == "up" and M.state.hl_idx ~= nil then
-                if M.state.hl_idx > 1 then M.state.hl_idx = M.state.hl_idx-1 else M.state.hl_idx = nil end
-                write_search_results()
+            if key_name == "down" then
+                if M.state.in_search_result_view then
+                    M.state.sr_menu.hl_idx = 1 + (M.state.sr_menu.hl_idx % n_options)
+                    write_play_options()
+                else
+                    M.state.hl_idx = (M.state.hl_idx == nil and 1) or math.min(M.state.hl_idx+1, #CSTATE.search_results)
+                    write_search_results()
+                end
+            
+            elseif key_name == "up" then
+                if M.state.in_search_result_view then
+                    M.state.sr_menu.hl_idx = M.state.sr_menu.hl_idx > 1 and (M.state.sr_menu.hl_idx-1) or n_options
+                    write_play_options()
+                elseif M.state.hl_idx ~= nil then
+                    -- if M.state.hl_idx > 1 then M.state.hl_idx = M.state.hl_idx-1 else M.state.hl_idx = nil end
+                    M.state.hl_idx = M.state.hl_idx > 1 and M.state.hl_idx-1 or nil
+                    write_search_results()
+                end
                 
-            elseif key_name == "enter" and M.state.hl_idx ~= nil then
-                M.state.in_search_result_view = true
-                M.state.clicked_result_index = M.state.hl_idx
-                M.redraw_screen()
+            elseif key_name == "enter" then 
+                if M.state.in_search_result_view then
+                    local menu_item = M.state.sr_menu.items[M.state.sr_menu.hl_idx]
+                    handle_click(1, menu_item.x, menu_item.y)
+                    
+
+                elseif M.state.hl_idx ~= nil then
+                    M.state.in_search_result_view = true
+                    M.state.clicked_result_index = M.state.hl_idx
+                    M.redraw_screen()
+                end
             end
         end
     end
