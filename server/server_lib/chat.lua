@@ -67,25 +67,20 @@ function M.announce_song(artist, song_title)
         return chatBox.sendMessage(artist_col..artist.."&r - "..song_col..song_title, label_col.."Now Playing", "[]", label_col) -- &r : reset style
     end
 
-    local toasts = {}
-    for i, username in ipairs(playerDetector.getOnlinePlayers()) do
-        toasts[i] = function () chatBox.sendToastToPlayer(song_title, "Now Playing", username, "&4&l"..artist, "()", "&c&l") end -- dark_red-bold, light_red-bold
-    end
-    pcall(parallel.waitForAll, table.unpack(toasts))
     
-    -- for i, username in ipairs(playerDetector.getOnlinePlayers()) do
-    --     chatBox.sendToastToPlayer(song_title, "Now Playing", username, "&4&l"..artist, "()", "&c&l") -- dark_red-bold, light_red-bold
-    -- end
+    for i, username in ipairs(playerDetector.getOnlinePlayers()) do
+        chatBox.sendToastToPlayer(song_title, "Now Playing", username, "&4&l"..artist, "()", "&c&l") -- dark_red-bold, light_red-bold
+    end
     
 end
 
 
 --- Write text in the chat or debugging file
----@param message [string|table] contents to log
+---@param message string|table contents to log
 ---@param msg_type string? One of DEBUG, ERROR, INFO, STATE. Defaults to DEBUG
 function M.log_message(message, msg_type)
     msg_type = msg_type or "DEBUG"
-    if type("message") == "table" then
+    if type(message) == "table" then
         message = STATE.format_state(message)
     end
     if msg_type ~= "INFO" then
