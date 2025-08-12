@@ -50,6 +50,7 @@ function Buffer.new(handle, song_id)
         total_write = { bytes = 0, chunks = 0 },
         done_read = false,
         done_write = false,
+        destroyed = false,
     }
     
     self.buffer = {}
@@ -60,13 +61,11 @@ function Buffer.new(handle, song_id)
     -- end
 
     function self:next()
-        if self.done_write then return end -- this can return immediately since its not used in parallel
+        if self.done_write then return end
 
-        while #self.buffer == 0 and not self.done_read do
-            os.pullEvent("playback_stopped")
-            -- os.pullEvent()
-            -- self:read()
-        end -- Wait until next is available
+        if #self.buffer == 0 then -- first call occurs before parallel, will need to read
+            self:read()
+        end
 
         if self.done_read and #self.buffer == 0 then
             self.done_write = true
@@ -83,20 +82,19 @@ function Buffer.new(handle, song_id)
 
         -- chat.log_message(
         os.queueEvent("log_message",
-            string.format('<%02d/%03d/%03d> R/W: [%0.1f / %0.1f] Kb',
+            string.format('<%02d|%03d/%03d> [\25%0.1f\24%0.1f] KiB',
                 #self.buffer, self.total_read.chunks, self.total_write.chunks,
                 self.total_read.bytes / 1024, self.total_write.bytes / 1024),
             "INFO")
 
+        
         return next
+        
     end
 
     function self:read()
-        -- if self.done_read and self.done_write then return end -- don't want this to return immediately if we are still waiting for speakers to finish
-
-        while self.done_read or #self.buffer > self.max_buffer_length do
-            os.pullEvent("playback_stopped")
-            -- os.pullEvent()
+        if self.done_read or #self.buffer > self.max_buffer_length then
+            return
         end
 
         local ok, data = pcall(self.handle.read, self.chunk_size)
@@ -136,16 +134,28 @@ function Buffer.new(handle, song_id)
         return dsz
     end
 
-    function self:is_done()
-        -- make *aggresively* sure it's done
-        return self.done_write and self.done_read and (self.total_read.chunks == self.total_write.chunks)
+    function self:read_n(n)
+        for i=1,n do self:read() end
+    end
+    
+    function self:destroy()
+        self.destroyed = true
+        self.done_read = true
+        pcall(self.handle.close)
+        self.done_write = true
+        self.song_id = "NULL" -- avoid setting nil because of the nil == nil behavior
+        self.buffer = nil
+    end
+
+    function self:stream_complete()
+        return not self.destroyed and self.done_write and self.done_read
     end
 
     return self
 end
 
 
-debug.debug()
+-- debug.debug()
 
 -- 1 minute Countup Timer - with Ai counting voice
 -- https://www.youtube.com/watch?v=TWR9zT1USTQ
@@ -157,7 +167,7 @@ debug.debug()
 --- Plays audio from a given speaker
 ---@param ccspeaker speaker The name of the speaker peripheral.
 ---@param buffer table audio data, a list of numerical amplitudes between -128 and 127.
----@param song_id string id of the song thatxmus the buffer chunk belongs to.
+---@param song_id string id of the song that the buffer chunk belongs to.
 local function play_audio_buffer(ccspeaker, buffer, song_id)
     local speaker_name = peripheral.getName(ccspeaker)
     while not ccspeaker.playAudio(buffer, STATE.data.volume) do
@@ -205,58 +215,33 @@ local function play_audio_chunk(chunk, song_id)
 end
 
 
--- Decodes the audio chunk, broadcasts the decoded audio buffer over PROTO_AUDIO, and plays on all connected speakers
----@param chunk string a block of 16KiB encoded audio data to feed to the decoder
----@param song_id string id of the song that the chunk belongs to.
-local function transmit_audio_chunk(chunk, song_id, chunk_id)
-    -- if not chunk then return end
-
-    -- local buffer = decoder(chunk) -- TODO: decode in buffer:read() ??
-    local buffer = chunk -- decode in buffer:read()
-
-
-    local sub_state = {active_stream_id=STATE.data.active_stream_id, song_id = song_id , chunk_id = chunk_id} -- add in local song_id for interrupts
+--  broadcasts the decoded audio buffer data over PROTO_AUDIO
+local function transmit_audio(data_buffer)
+    local buffer = data_buffer:next()
+    local sub_state = {
+        active_stream_id=STATE.data.active_stream_id,
+        song_id = data_buffer.song_id, -- add in local song_id for interrupts
+        chunk_id = data_buffer.total_write.chunks
+    }
 
     -- debug.debug()
     local receivers = { rednet.lookup("PROTO_AUDIO") } -- TODO: expensive?
-    -- rednet.broadcast({ "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO')
+    rednet.broadcast({ "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO')
 
     
     local play_tasks = {}
     local timeout = AUDIO_CHUNK_DURATION -- + 0.15 -- 3 extra ticks 
-    -- for i, receiver_id in ipairs(receivers) do
-    --     play_tasks[i] = function()
-    --         local id, message
-    --         repeat
-    --             id, message = rednet.receive("PROTO_AUDIO_NEXT", timeout)
-    --             print(id, message)
-    --         until id == receiver_id end
-    -- end
-    -- local respondants = {}
-    -- for i, receiver_id in ipairs(receivers) do
-    --     play_tasks[i] = function()
-    --         local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
-    --         if msg == "request_next_chunk" then
-    --             table.insert(respondants, id)
-    --         end
-    --     end
-    -- end
+
     for i, recv_id in ipairs(receivers) do
-        rednet.send(recv_id, { "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO') -- TODO: prefer over broadcast ?
+        -- rednet.send(recv_id, { "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO') -- TODO: prefer over broadcast ?
         play_tasks[i] = function() rednet.receive("PROTO_AUDIO_NEXT", timeout) end
     end
 
-    -- rednet.receive("PROTO_AUDIO_NEXT", timeout)
-    -- local ok = true
-    
-    -- local play_tasks = {function () rednet.receive("PROTO_AUDIO_NEXT", timeout) end}
-    
-    local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks))
+    local prefill_buffer = function () data_buffer:read_n(2) end
+    -- THIS is where we can sneak in pre-populate -- while waiting on speakers. 
+    -- as long as prepop takes < ~2.75 seconds, it should never cause any delay 
+    local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks), prefill_buffer)
 
-    -- if #respondants > 0 then
-    --     return os.queueEvent("request_next_chunk")
-    -- end
-    -- debug.debug()
 
     if not ok then
         STATE.data.error_status = "PLAYBACK_ERROR" -- redundant, now set in playback_stopped
@@ -274,17 +259,20 @@ local function process_audio_data(data_buffer)
     -- while (not data_buffer.done_write) and STATE.data.active_stream_id == data_buffer.song_id do
     while STATE.data.active_stream_id == data_buffer.song_id and STATE.data.status==1 do
         -- play_audio_chunk(data_buffer:next(), data_buffer.song_id)
-        transmit_audio_chunk(data_buffer:next(), data_buffer.song_id, data_buffer.total_write.chunks)
+        -- transmit_audio_chunk(data_buffer:next(), data_buffer.song_id, data_buffer.total_write.chunks)
+        transmit_audio(data_buffer)
         parallel.waitForAny(
         -- function () play_audio_chunk(data_buffer:next(), data_buffer.song_id) end,
             function() os.pullEvent("request_next_chunk") end,
-            function() os.pullEvent("playback_stopped") end,
-            function() repeat data_buffer:read() until data_buffer:is_done() end
+            function()
+                os.pullEvent("playback_stopped")
+                data_buffer:destroy()
+            end
         )
         if STATE.data.status<1 or STATE.data.active_stream_id==nil then break end
     end
-    -- STATE.data.is_currently_playing = false
-    return data_buffer:is_done()
+
+    return data_buffer:stream_complete()
 end
 
 
@@ -371,7 +359,7 @@ function M.toggle_play_pause()
 
     local state_end = STATE.format_state()
 
-    debug.debug()
+    -- debug.debug()
 end
 
 function M.audio_loop()
@@ -410,7 +398,7 @@ function M.audio_loop()
                 local has_data_stream    = (STATE.data.active_stream_id ~= nil)
                 local has_correct_stream = has_data_stream and (STATE.data.active_stream_id == STATE.data.active_song_meta.id)
                 
-                debug.debug()
+                -- debug.debug()
                 -- This will always execute if queued properly and should_play==true, but keep as safety check to avoid re-downloading an actively streaming song
                 if should_play and not has_correct_stream then
                     network.download_song(STATE.data.active_song_meta.id)
@@ -428,14 +416,14 @@ function M.audio_loop()
                     chat.announce_song(STATE.data.active_song_meta.artist, STATE.data.active_song_meta.name)
                     
                     local dbuffer = Buffer.new(handle, STATE.data.active_song_meta.id)
-                    local first_read_bytes = dbuffer:read() -- need to read once for init queue data
-                    
+
+                    -- debug.debug()
                     local song_completed = process_audio_data(dbuffer)
                     if song_completed then
                         STATE.data.active_song_meta = advance_queue() -- EDGE CASE?: click skip song just as a song ends => skips over a song
                     end
                     STATE.data.active_stream_id = nil -- (re)download on next play, regardless of if finished
-                    debug.debug()
+                    -- debug.debug()
                     
                     os.queueEvent('fetch_audio') -- needed to auto play next song
                     
