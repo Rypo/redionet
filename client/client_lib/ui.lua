@@ -150,8 +150,15 @@ local function draw_now_playing_tab()
     btn_cfg = config.ui.play_button
 
     -- Server playing marker tab
-    local status_color = (CSTATE.server_state.status == -1 and colors.orange) or (CSTATE.server_state.status == 0 and colors.red) or (CSTATE.server_state.status == 1 and colors.green)
+    local status_color = (CSTATE.server_state.status == -1 and colors.orange) or (CSTATE.server_state.status == 1 and colors.red) or (CSTATE.server_state.status == 0 and colors.green)
     paintutils.drawBox(btn_cfg.x-1, btn_cfg.y, btn_cfg.x-1, btn_cfg.y, status_color)
+    
+    if CSTATE.server_state.status > -1 then
+        term.setTextColor(config.colors.white)
+        term.setCursorPos(btn_cfg.x-1, btn_cfg.y)
+        term.write(status_color == colors.red and '\120' or status_color == colors.green and '\16')
+    end
+
 
     term.setBackgroundColor(config.colors.gray) -- reset after box draw
 
@@ -415,13 +422,14 @@ local function handle_search_input()
     term.setCursorBlink(false)
 
     if input and #input > 0 then
+        M.state.hl_idx = nil -- reset highlighted index, if any
         net.search(input)
-    else
-        CSTATE.last_search_query = nil
-        CSTATE.search_results = nil
-        CSTATE.error_status = false
+    -- else
+    --     CSTATE.last_search_query = nil
+    --     CSTATE.search_results = nil
+    --     CSTATE.error_status = false
     end
-    M.state.hl_idx = nil -- reset highlighted index if any
+
     M.state.waiting_for_input = false
     M.redraw_screen()
 end
@@ -441,7 +449,8 @@ local function delay_flash(menu_button)
 end
 
 local function handle_click(button, x, y)
-    if button ~= 1 then return end
+    -- 1: Lclick, 2: Rclick | 0: custom, "fake" click
+    if button > 1 then return end
 
     if M.state.in_search_result_view then
         -- Handle clicks in the search result menu
@@ -585,14 +594,24 @@ local function handle_key_press(key, is_held)
             elseif key_name == "enter" then 
                 if M.state.in_search_result_view then
                     local menu_item = M.state.sr_menu.items[M.state.sr_menu.hl_idx]
-                    handle_click(1, menu_item.x, menu_item.y)
+                    handle_click(0, menu_item.x, menu_item.y)
                     
-
                 elseif M.state.hl_idx ~= nil then
                     M.state.in_search_result_view = true
                     M.state.clicked_result_index = M.state.hl_idx
                     M.redraw_screen()
                 end
+
+            elseif key_name == "backspace" then
+                if M.state.in_search_result_view then 
+                    local menu_cancel = M.state.sr_menu.items[4]
+                    handle_click(0, menu_cancel.x, menu_cancel.y) -- cancel
+                
+                elseif M.state.hl_idx ~= nil then 
+                    handle_click(0, config.ui.search_bar.x, config.ui.search_bar.y) -- go back into search bar
+                end
+
+
             end
         end
     end
