@@ -1,7 +1,6 @@
--- https://pastebin.com/kkMXs0aY
 --[[
-    Main application file for the music player.
-    This file loads all the necessary modules and starts the main application loops.
+    Main application file for the music server.
+    This file loads all the necessary modules and starts the main server application loops.
 ]]
 
 peripheral.find("modem", rednet.open)
@@ -10,17 +9,70 @@ if not rednet.isOpen() then error("Failed to establish rednet connection. Attach
 rednet.host('PROTO_SERVER', 'server')
 
 local monitor = peripheral.find("monitor")
-if monitor then
-    term.redirect(monitor)
-end
+if monitor then term.redirect(monitor) end -- redirect to larger debug screen, if available
 
+local pretty = require("cc.pretty")
 
 local chat = require('server_lib.chat')
 local audio = require("server_lib.audio")
 local network = require("server_lib.network")
 
-STATE = require("server_lib.state")
 
+--[[ Global Server State ]]
+STATE = {}
+STATE.data = {
+    -- Playback State
+    status = -1,            -- -1=cannot_play/empty/waiting, 0=stopped, 1=streaming 
+    queue = {},             -- song queue, list of objects like active_song_meta
+    active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str}
+    loop_mode = 0,          -- 0: Off, 1: Queue/List, 2: Song
+    volume = 1.5,           -- no longer used server-side, value between 0 and 3 
+
+    -- Audio Network State
+    active_stream_id = nil, -- The MOST important server state value. This ~= nil IFF there is sound coming out of the speakers (aka song is playing).
+
+    last_download_id = nil, -- only accessed by `network`
+    is_loading = false,     -- set in `network`, get in client.ui
+    error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR
+    response_handle = nil,  -- since filehandles cannot be easily shared via events or rednet, set a state to read from
+}
+
+
+-- State Functions
+
+---broadcast a subset of server state over PROTO_SUB_STATE protocol
+---@param caller_info? string debugging info to append to redraw event
+function STATE.broadcast(caller_info)
+    -- minimal sub state for audio receivers to use,
+    local sub_state = {
+        active_song_meta = STATE.data.active_song_meta,
+        queue = STATE.data.queue,
+        is_loading = STATE.data.is_loading,
+        loop_mode = STATE.data.loop_mode,
+        status = STATE.data.status,
+        error_status = STATE.data.error_status
+    }
+
+    rednet.broadcast(sub_state, 'PROTO_SUB_STATE')
+    os.queueEvent('redraw_screen', "STATE.broadcast" .. ("(%s)"):format(caller_info or ""))
+end
+
+
+---format state table as string 
+---@param state? table state to format, default is unabridged server STATE
+---@return string
+function STATE.to_string(state)
+    state = state or STATE.data
+    local d_state = {}
+    for k,v in pairs(state) do
+        if not string.find(k, 'response_handle') then
+            if type(v) ~= "table" or #v < 10 then d_state[k] = v end
+        end
+    end
+    return pretty.render(pretty.pretty(d_state), 20)
+end
+
+--[[ Server Loops ]]
 
 
 local function server_loop()
@@ -69,7 +121,7 @@ local function server_loop()
                     else
                         audio.play_song(payload)
                     end
-                    -- STATE.send_state()
+                    -- STATE.broadcast()
                 end
 
                 -- always auto play on Queue update unless stopped
@@ -77,32 +129,26 @@ local function server_loop()
                     STATE.data.status = 1
                     os.queueEvent('fetch_audio') -- TODO: monitor for interaction with Play Now
                 end
-
-                STATE.send_state()
+                STATE.broadcast('PRO:S_queue: '..code) -- fetch audio already broadcasts state
             end,
 
             function()
                 id, message = rednet.receive('PROTO_SERVER_PLAYER') -- server playback state management 
                 local code, payload = table.unpack(message)
+                
+                local dbg = 'PRO:S_player: '..code
 
-                -- if code == "PLAY" then
-                --     audio.play_song(payload)
-                --     STATE.send_state()
-
-                -- elseif code == "STOP" then
-                --     audio.stop_song()
-                --     STATE.send_state()
                 if code == "STATE" then
-                    STATE.send_state()
+                    STATE.broadcast(dbg)
                 elseif code == "TOGGLE" then
                     audio.toggle_play_pause()
-                    STATE.send_state()
+                    STATE.broadcast(dbg)
                 elseif code == "SKIP" then
                     audio.skip_song()
-                    STATE.send_state()
+                    STATE.broadcast(dbg)
                 elseif code == "LOOP" then
                     STATE.data.loop_mode = payload
-                    STATE.send_state()
+                    STATE.broadcast(dbg)
                 end
             end
         )
@@ -114,7 +160,7 @@ local function server_event_loop()
         parallel.waitForAny(
             function()
                 local ev, origin = os.pullEvent('redraw_screen')
-                print('trigger redraw: ' .. tostring(origin))
+                print('redraw: ' .. tostring(origin))
                 rednet.broadcast('redraw_screen', 'PROTO_UI')
             end,
             function()
@@ -123,8 +169,12 @@ local function server_event_loop()
             end,
             function()
                 local ev, user, message, uuid, ishidden = os.pullEvent("chat") -- only fires if a *real* chatBox is peripheral is attached
-                chat.log_message("Client reboot issued", "INFO")
-                if message == 'reboot' then rednet.broadcast('reboot', 'PROTO_REBOOT') end
+                if message == 'reboot' then
+                    chat.log_message("reboot issued", "INFO")
+                    rednet.broadcast('reboot', 'PROTO_REBOOT')
+                    os.sleep(0.5)
+                    os.reboot()
+                end
             end
         )
     end

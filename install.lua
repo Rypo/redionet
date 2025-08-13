@@ -19,7 +19,6 @@ filemap["server"] = {
     ["./server_lib/audio.lua"] = BASE_URL ..    "server/server_lib/audio.lua",
     ["./server_lib/chat.lua"] = BASE_URL ..     "server/server_lib/chat.lua",
     ["./server_lib/network.lua"] = BASE_URL ..  "server/server_lib/network.lua",
-    ["./server_lib/state.lua"] = BASE_URL ..    "server/server_lib/state.lua",
 }
 
 filemap["client"] = {

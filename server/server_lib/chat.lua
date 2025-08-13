@@ -81,9 +81,9 @@ end
 function M.log_message(message, msg_type)
     msg_type = msg_type or "DEBUG"
     if type(message) == "table" then
-        message = STATE.format_state(message)
+        message = STATE.to_string(message)
     end
-    if msg_type ~= "INFO" then
+    if msg_type == "ERROR" then
         local log_msg = string.format("[%s] (%s) %s", msg_type, os.date("%Y-%m-%d %H:%M:%S"), message .. "\n")
         io.open('.logs/server.log', 'a'):write(log_msg):close()
     end
