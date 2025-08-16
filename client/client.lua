@@ -102,7 +102,10 @@ local function client_loop()
                 if has_speaker then
                     rednet.host('PROTO_AUDIO', HOST_NAME) -- suprisingly expensive, too disruptive for sync call between UI 
                 end
-                
+            end,
+            function ()
+                os.pullEvent('unhost_audio')
+                rednet.unhost('PROTO_AUDIO', HOST_NAME)
             end
         )
 

@@ -1,5 +1,4 @@
 local speaker = peripheral.find("speaker")
-local monitor = peripheral.find("monitor")
 
 local decoder = require("cc.audio.dfpwm").make_decoder()
 
@@ -17,12 +16,11 @@ local M = {}
 ---@param blocking? boolean if true, force an update before proceeding, otherwise queue event 
 function M.update_server_state(blocking)
     if blocking then
+        -- get current server state on join
         rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
         local id,sub_state = rednet.receive('PROTO_SUB_STATE')
         CSTATE.server_state = sub_state
 
-        -- local pretty = require("cc.pretty")
-        -- io.open('.logs/client.log', 'a'):write(pretty.render(pretty.pretty(CSTATE), 20) .. "\n"):close()
     else
         os.queueEvent('sync_state')
     end
@@ -66,32 +64,29 @@ function M.toggle_play_pause()
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         os.queueEvent("host_audio")
         CSTATE.is_paused = false
+        rednet.broadcast('sync', 'PEER_SYNC')
+
     else
         speaker.stop()
         CSTATE.is_paused = true
         os.queueEvent("playback_stopped")
-        rednet.unhost('PROTO_AUDIO', HOST_NAME)
-        
+        os.queueEvent("unhost_audio")
     end
-    
-
 end
 
 local function play_audio(buffer, state)
     if not buffer then return end
     -- buffer = decoder(buffer)
-    -- if monitor then 
-    --     local dterm = term.current()
-    --     term.redirect(monitor)
-    --     print(string.format("[%s] %s", os.date("%H:%M:%S"), state.chunk_id))
-    --     term.redirect(dterm)
-    -- end
-
+    -- DBGMON('volume: ' .. CSTATE.volume)
     while not speaker.playAudio(buffer, CSTATE.volume) do
+        -- DBGMON({volume = CSTATE.volume})
         parallel.waitForAny(
             -- function() repeat until select(2, os.pullEvent("speaker_audio_empty")) == speaker_name end,
             function() os.pullEvent("speaker_audio_empty") end,
-            function() os.pullEvent("playback_stopped") end
+            function()
+                os.pullEvent("playback_stopped")
+                state.active_stream_id="HALT" -- mute doesn't use is_paused, need a way to breakout 
+            end
         )
         if CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
     end
@@ -104,24 +99,36 @@ function M.receive_loop()
     local id, message
 
     while true do
-        id, message = rednet.receive('PROTO_AUDIO')
-        local msg_code, payload = table.unpack(message)
-
-        if msg_code == 'HALT' then
-            speaker.stop()
-            os.queueEvent("playback_stopped")
-            rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT')
-
-        else --if msg_code == 'PLAY' then
-            if not CSTATE.is_paused then
-                local buffer, sub_state = table.unpack(payload)
-                play_audio(buffer, sub_state)
+        parallel.waitForAny(
+            function ()
+                id, message = rednet.receive('PROTO_AUDIO')
+                -- local msg_code, payload = table.unpack(message)
                 
-                rednet.send(id, "request_next_chunk", 'PROTO_AUDIO_NEXT')
-            else
-                rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT') -- still need to respond so that the waitForAll can complete ASAP
+                if CSTATE.is_paused then
+                    rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT') -- still need to respond to differentiate from connection lost
+                else
+                    local buffer, sub_state = table.unpack(message)
+                    play_audio(buffer, sub_state)
+                    
+                    rednet.send(id, "request_next_chunk", 'PROTO_AUDIO_NEXT')
+                end
+            end,
+            
+            function ()
+                id, message = rednet.receive('PROTO_AUDIO_HALT')
+                speaker.stop()
+                os.queueEvent("playback_stopped")
+
+                rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT')
+            end,
+            function ()
+                 -- After far too long spent concocting elaborate timeouts schemes and precision yield strategies, 
+                 -- turns out, to have all clients perfectly in sync at all times
+                 -- just flush the other speaker buffers whenever a client joins the session... 3 lines of code.
+                id = rednet.receive('PEER_SYNC')
+                if id ~= os.getComputerID() then speaker.stop() end
             end
-        end
+        )
     end
 end
 

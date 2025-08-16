@@ -4,9 +4,7 @@
 ]]
 
 
--- local state = require("lib_music.state")
 local net = require("client_lib.net")
--- local audio = require("lib_music.audio")
 local receiver = require("client_lib.receiver")
 
 local M = {}
@@ -29,12 +27,12 @@ config.tabs = { " Now Playing ", " Search " }
 -- UI layout constants
 config.ui = {
     -- Now Playing Tab
-    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop " },
-    play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Mute " },
+    play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop ", label_mute = " Mute " },
     skip_button = { x = 9, y = 6, width = 6, label = " Skip " },
     -- loop_button = { x = 16, y = 6, width = 12, labels = { " Loop Off ", " Loop Queue ", " Loop Song " } },
     loop_button = { x = 16, y = 6, width = 11, labels = { " Loop Off ", " Loop List ", " Loop Song " } },
     volume_slider = { x = 2, y = 8, width = 25 },
+    queue = { start_y = 10, height = 2 },
 
     -- Search Tab
     search_bar = { x = 2, y = 3, width = config.term_width - 2, height = 3 },
@@ -46,6 +44,8 @@ config.ui = {
     menu_add_to_queue = { x = 2, y = 10, label = "Add to queue" },
     menu_cancel = { x = 2, y = 13, label = "Cancel" },
 }
+
+config.client_mode_mute = false
 
 -- UI CLIENT STATE --
 M.state = {}
@@ -165,8 +165,12 @@ local function draw_now_playing_tab()
     -- term.setTextColor(btn_color)
     term.setTextColor(config.colors.white) -- client play/stop always enabled
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
-    -- term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
-    term.write((CSTATE.volume ~= 0) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
+
+    if config.client_mode_mute then
+        term.write((CSTATE.volume ~= 0) and btn_cfg.label_mute or btn_cfg.label_play)
+    else
+        term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
+    end
 
     -- Skip
     local skip_enabled = CSTATE.server_state.status > -1 --active_song_meta or #queue > 0
@@ -214,12 +218,13 @@ local function draw_now_playing_tab()
     local queue = CSTATE.server_state.queue
     if #queue > 0 then
         term.setBackgroundColor(config.colors.black)
+        -- TODO: treat like search result, only write visible 
         for i, song in ipairs(queue) do
             term.setTextColor(config.colors.white)
-            term.setCursorPos(2, 10 + (i - 1) * 2)
+            term.setCursorPos(2, config.ui.queue.start_y + (i - 1) * 2)
             term.write(song.name)
             term.setTextColor(config.colors.lightGray)
-            term.setCursorPos(2, 11 + (i - 1) * 2)
+            term.setCursorPos(2, config.ui.queue.start_y+1 + (i - 1) * 2)
             term.write(song.artist)
         end
     end
@@ -507,8 +512,11 @@ local function handle_click(button, x, y)
             local buttons_enabled = CSTATE.server_state.status > -1
             
             if is_in_box(x, y, config.ui.play_button) then
-                -- receiver.toggle_play_pause() -- local play/pause
-                receiver.toggle_play_mute()
+                if config.client_mode_mute then
+                    receiver.toggle_play_mute()
+                else
+                    receiver.toggle_play_pause() -- local play/pause
+                end
             
             elseif is_in_box(x, y, config.ui.skip_button) and buttons_enabled then
                 -- receiver.send_skip_song()
@@ -517,7 +525,6 @@ local function handle_click(button, x, y)
             elseif is_in_box(x, y, config.ui.loop_button) then
                 M.state.loop_mode = (M.state.loop_mode + 1) % 3
                 receiver.send_server_player("LOOP", M.state.loop_mode)
-                -- receiver.send_loop_mode(M.state.loop_mode) -- send to server in redraw ??
             end
         elseif y == config.ui.volume_slider.y then
             if is_in_box(x, y, config.ui.volume_slider) then

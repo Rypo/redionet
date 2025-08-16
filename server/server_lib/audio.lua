@@ -109,6 +109,9 @@ function Buffer.new(handle, song_id)
         -- table.insert(self.buffer, data)
         table.insert(self.buffer, self.decoder(data))
         --[[
+
+        UPDATE: client desync is worse by every measure when decoding is done client side
+
         Server side decoding:
         Pros: 
         - Can cache serveral chunks ahead of time
@@ -216,6 +219,9 @@ local function play_audio_chunk(chunk, song_id)
 end
 
 
+
+local last_chunktime = {}
+local delay = {}
 --  broadcasts the decoded audio buffer data over PROTO_AUDIO
 local function transmit_audio(data_buffer)
     local buffer = data_buffer:next()
@@ -226,46 +232,91 @@ local function transmit_audio(data_buffer)
     }
 
     -- debug.debug()
-    local receivers = { rednet.lookup("PROTO_AUDIO") }
-    -- TODO: expensive, can/should async? 
-    -- OR better yet, maintain a list of active clients based on # replies in previous iters. 3 consec timeout = client dead
-    local n_receivers = #receivers
-    rednet.broadcast({ "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO')
+    local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes ~2000 ms! but delay this seems to help with sync issues?
+    
+    rednet.broadcast({buffer, sub_state}, 'PROTO_AUDIO') -- takes ~ 36-38 ms, must come after lookup
+    
+
     -- local send_tasks = {}
     -- for i, recv_id in ipairs(receivers) do
-    --     send_tasks[i] = function () rednet.send(recv_id, { "PLAY", {buffer, sub_state} }, 'PROTO_AUDIO') end
+    --     send_tasks[i] = function ()
+    --         if (delay[recv_id] or 0) >= 10 then
+    --             local timer_id = os.startTimer(delay[recv_id] / 1000)
+    --             local ev,tid
+    --             repeat ev, tid = os.pullEvent("timer") until tid == timer_id
+    --             delay[recv_id] = nil
+    --         end
+    --         rednet.send(recv_id, {buffer, sub_state}, 'PROTO_AUDIO') 
+    --     end
     -- end
     -- pcall(parallel.waitForAll, table.unpack(send_tasks)) -- TODO: prefer over broadcast ?
     
-    local play_tasks = {}
-    local timeout = AUDIO_CHUNK_DURATION + 0.15 -- 3 extra ticks / 150ms 
 
-    local replies = {}
-    
-    for i, recv_id in ipairs(receivers) do
-        play_tasks[i] = function()
-            while #replies < n_receivers do 
-                local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
-                if id then -- weak check. Doesn't care who replied, only number received
+    local timeout = AUDIO_CHUNK_DURATION + 0.2 -- 4 extra ticks / 200ms 
+
+    local replies_id = {}
+    local replies_time = {}
+
+    local function play_task()
+        local n_receivers = #receivers
+
+        while #replies_time < n_receivers do
+            local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
+            if id then -- weak check. Doesn't care who replied, only number received
+
+                if msg == "request_next_chunk" then
                     local timestamp_ms = os.epoch("local")
-                    table.insert(replies, timestamp_ms)
+
+                    table.insert(replies_id, id)
+                    table.insert(replies_time, timestamp_ms)
+                    local play_duration = timestamp_ms - (last_chunktime[id] or timestamp_ms)
+                   
+                    -- os.queueEvent("log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #replies, n_receivers), "DEBUG")
+                    chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #replies_id, n_receivers ), "DEBUG")
+
+                    last_chunktime[id] = timestamp_ms
                     
-                    -- os.queueEvent("log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(6), id, msg, #replies, #receivers), "DEBUG")
-                    chat.log_message(string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(6), id, msg, #replies, n_receivers), "DEBUG")
-                else
-                    n_receivers = n_receivers - 1 -- assume connection lost on timeout; lookup too disruptive
                 end
+                --elseif msg==... do not use message==playback_stopped to decrement n_receivers. Causes unexpected behavior. 
+            else
+                
+                n_receivers = n_receivers - 1 -- assume connection lost on timeout; lookup too disruptive
+                print('client timed out')
             end
         end
     end
     
+    -- local play_tasks = {}
+    -- for i, recv_id in ipairs(receivers) do play_tasks[i] = play_task end
+
+    -- if #play_tasks < 1 then
+    if #receivers < 1 then
+        chat.log_message('No remaining listeners... Stopping', 'INFO')
+        return M.stop_song()
+    end
+
     local prefill_buffer = function () data_buffer:read_n(2) end
+    
     -- THIS is where we can sneak in pre-populate -- while waiting on speakers. 
     -- as long as prepop takes < ~2.75 seconds, it should never cause any delay 
-    local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks), prefill_buffer)
+    -- local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks), prefill_buffer)
+    local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
+    
 
-    local desync_ms = (math.max(table.unpack(replies)) - math.min(table.unpack(replies)))
-    chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
+    -- if #replies == 0 then
+    --     chat.log_message('No remaining listeners... Stopping', 'INFO')
+    --     return M.stop_song()
+    if #replies_time > 1 then
+        local desync_ms = (math.max(table.unpack(replies_time)) - math.min(table.unpack(replies_time)))
+        -- os.queueEvent("log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
+        chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #replies_time, #receivers), "INFO")
+        -- for i,id in ipairs(replies_id) do
+        --     delay[id] = (i<#replies and replies[i+1] - replies[i]) or 0
+        --     write(("[%d] %d - %dms : "):format(i, id, delay[id]))
+        -- end
+    end
+
+
 
     if not ok then
         STATE.data.error_status = "PLAYBACK_ERROR" -- redundant, now set in playback_stopped
@@ -352,7 +403,7 @@ function M.play_song(song_meta)
 end
 
 function M.stop_song()
-    rednet.broadcast({"HALT", {nil, nil}}, 'PROTO_AUDIO')
+    rednet.broadcast("audio.stop_song", 'PROTO_AUDIO_HALT')
 
     -- for _, speaker in ipairs(speakers) do
     --     speaker.stop()
@@ -414,7 +465,7 @@ function M.audio_loop()
 
             local state              = STATE.to_string()
 
-            debug.debug()
+            -- debug.debug()
             
             STATE.broadcast("audio_loop - ".. event) -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
 
@@ -422,7 +473,7 @@ function M.audio_loop()
                 local has_data_stream    = (STATE.data.active_stream_id ~= nil)
                 local has_correct_stream = has_data_stream and (STATE.data.active_stream_id == STATE.data.active_song_meta.id)
                 
-                debug.debug()
+                -- debug.debug()
                 -- This will always execute if queued properly and should_play==true, but keep as safety check to avoid re-downloading an actively streaming song
                 if should_play and not has_correct_stream then
                     network.download_song(STATE.data.active_song_meta.id)
@@ -434,7 +485,7 @@ function M.audio_loop()
                 if not handle then error('bad state: read handle is nil', 0) end -- appease the linter (state should be unreachable)
                 local h_pos = handle.seek()
 
-                debug.debug()
+                -- debug.debug()
 
                 if should_play then
                     -- makes more sense to announce here since this is the last moment before audio actually plays
