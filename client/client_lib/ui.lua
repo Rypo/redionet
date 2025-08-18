@@ -140,9 +140,6 @@ local function draw_now_playing_tab()
 
     -- Buttons
     local btn_cfg
-    -- local skip_enabled = CSTATE.server_state.status > -1 --active_song_meta or #queue > 0
-    -- local btn_color = skip_enabled and config.colors.white or config.colors.lightGray
-    -- term.setBackgroundColor(config.colors.gray)
 
     -- Play/Stop
     btn_cfg = config.ui.play_button
@@ -228,19 +225,6 @@ local function draw_now_playing_tab()
     end
 end
 
-
--- local function write_search_results()
---     for i, result in ipairs(CSTATE.search_results) do
---         local y = config.ui.search_result.start_y + (i - 1) * config.ui.search_result.height
-
---         term.setTextColor(config.colors.white)
---         term.setCursorPos(2, y)
---         term.write(result.name)
---         term.setTextColor(config.colors.lightGray)
---         term.setCursorPos(2, y + 1)
---         term.write(result.artist)
---     end
--- end
 
 local function search_result_subset()
     local idx_start = 0
@@ -379,14 +363,12 @@ local function draw_search_result_menu()
 
     local result = CSTATE.search_results[M.state.clicked_result_index]
     term.setCursorPos(2, 2)
-    -- term.setCursorPos(1, 2)
     term.setTextColor(config.colors.white)
     term.write(result.name)
     -- write(result.name .. '\n') -- can't wrap or throws off click index
     term.setCursorPos(2, 3)
     term.setTextColor(config.colors.lightGray)
     term.write(result.artist)
-    -- write(result.artist)
 
     write_play_options()
 end

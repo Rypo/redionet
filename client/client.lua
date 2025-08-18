@@ -1,10 +1,15 @@
+--[[
+    Main application file for the music client.
+    This file loads all the necessary modules and starts the main client application loops.
+]]
+
 peripheral.find("modem", rednet.open)
 if not rednet.isOpen() then error("Failed to establish rednet connection. Attach a modem to continue.", 0) end
 
 local function wait_heartbeat()
     local server_id =  rednet.lookup('PROTO_SERVER')
     if server_id then
-        -- if server gets restarted, lookup table is insufficent 
+        -- if server restarts, lookup is insufficent 
         rednet.send(server_id, {"PING", {}}, 'PROTO_SERVER')
         local id, response = rednet.receive(10)
 
@@ -38,7 +43,6 @@ else
     end
 end
 
--- rednet.host('PROTO_UI', HOST_NAME)
 
 SERVER_ID = wait_heartbeat()
 print('Server Id: ', SERVER_ID)
@@ -49,13 +53,13 @@ local net = require('client_lib.net')
 
 
 
--- client state
+--[[ Global Client State]]
 CSTATE = {
-    last_search_query = nil,
-    search_results = nil,
-    is_paused = false,
-    volume = 1.5,
-    error_status = false,
+    last_search_query = nil,    -- set in `net`, used in `net` and `ui`  
+    search_results = nil,       -- list of at most 21 song_meta tables
+    is_paused = false,          -- if true, client stops processing music data transmissions
+    volume = 1.5,               -- value between 0 and 3 
+    error_status = false,       -- SEARCH_ERROR, false
     server_state = {
         active_song_meta = nil,
         queue = {},
@@ -70,7 +74,6 @@ CSTATE = {
 
 
 local function client_loop()
-    
     while true do
 
         parallel.waitForAny(
@@ -121,6 +124,7 @@ local client_functions = {
     ui.ui_loop,
     net.http_search_loop
 }
+-- Only start receiver loop if there is a speaker to play audio
 if has_speaker then table.insert(client_functions, receiver.receive_loop) end
 
 

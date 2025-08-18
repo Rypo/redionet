@@ -1,4 +1,3 @@
-
 --[[
     Client Network module
     Handles HTTP audio searching requests.
@@ -26,7 +25,7 @@ end
 
 
 local function filter_results(search_results)
-    if #search_results > 1 and string.find(search_results[1].artist, "patreon") then -- Filter out patreon message
+    if #search_results > 1 and string.find(search_results[1].artist, "patreon.com") then -- Filter out patreon message
         table.remove(search_results, 1)
     end
     return search_results
@@ -57,9 +56,7 @@ function M.http_search_loop()
                 local err = eventData[3]
                 if url == last_search_url then
                     CSTATE.error_status = "SEARCH_ERROR"
-                    -- os.queueEvent("redraw_screen")
                 end
-                -- chat.log_message(STATE.data.error_status .. ": " .. err, "ERROR")
             end
             os.queueEvent("redraw_screen")
         end

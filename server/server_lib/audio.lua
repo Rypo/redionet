@@ -1,44 +1,26 @@
-
 --[[
     Audio module
-    Manages audio transmission, queue, and decoding.
+    Manages audio decoding, transmission, and song queue.
 ]]
 
+local dfpwm = require("cc.audio.dfpwm")
 
 local network = require("server_lib.network")
 local chat = require('server_lib.chat')
---[[
-    The returned decoder is itself a function. This function accepts a string and returns a table of amplitudes, each value between -128 and 127.
 
-    Note: Decoders have lots of internal state which tracks the state of the current stream.
-    If you reuse an decoder for multiple streams, or use different decoders for the same stream, the resulting audio may not sound correct.
-]]
-local dfpwm = require("cc.audio.dfpwm")
 local AUDIO_CHUNK_DURATION = 2.75 -- exact is (2^7 * 2^10) samples / 48000kHz = 2.730666.. but ticks round to nearest 0.05
 
 local M = {}
 
-local speakers = { } -- { peripheral.find("speaker") }
--- if #speakers == 0 then
---     error("No speakers attached.", 0)
--- end
 
--- open up rednet communication
-peripheral.find("modem", rednet.open)
-
-
--- local receivers = { rednet.lookup("PROTO_AUDIO") }
-
-
---[[- Buffers Data
-    @type Buffer
-]]
+---@class Buffer
 local Buffer = {}
 
---- Create's a new Buffer instance.
----@param handle Handle read handle returned by http.request
+--- Creates a new Buffer instance.
+---@class ReadHandle
+---@param handle ReadHandle read handle returned by http.request
 ---@param song_id string expected song id of data buffered
----@treturn Buffer instance
+---@return Buffer instance
 function Buffer.new(handle, song_id)
     local self = {
         handle = handle,
@@ -78,7 +60,7 @@ function Buffer.new(handle, song_id)
         table.remove(self.buffer, 1)
 
         self.total_write.chunks = self.total_write.chunks + 1
-        self.total_write.bytes = self.total_write.bytes + #next
+        self.total_write.bytes = self.total_write.bytes + #next -- decoded length
 
         -- chat.log_message(
         os.queueEvent("log_message",
@@ -101,40 +83,23 @@ function Buffer.new(handle, song_id)
         if not ok or data == nil and self.total_read.chunks > 0 then
             self.done_read = true
             pcall(self.handle.close)
-            return 0
+            return
         end
 
-        local dsz = #data
+        local dsz = #data -- encoded length
 
         -- table.insert(self.buffer, data)
         table.insert(self.buffer, self.decoder(data))
         --[[
-
-        UPDATE: client desync is worse by every measure when decoding is done client side
-
-        Server side decoding:
-        Pros: 
-        - Can cache serveral chunks ahead of time
-        - transmitted data can be immediately used by speakers
-        - eliminates a time variable to consider for client halt/join
-        Cons:
-        - 8x Larger rednet transmissions (table with 131k int8s)
-        - Doesn't solve the "1 audio chunk ahead on rejoin" problem
-        
-        Client side decoding
-        Pros: 
-        - 8x Smaller rednet transmissions (string with 16k chars)
-        - Decoder state is local to the client which might be important?
-        Cons:
-        - None of the server side Pros
-        - locally blocking
-        - Doesn't solve the "1 audio chunk ahead on rejoin" problem
+        Preliminary testing shows desynchronization issues worsen when decoding is done
+        by the client. Server decode, cache, transmit seems to be the best approach.
+        For posterity, it's worth noting the main downside is larger rednet transmissions.
+        The decoded message is a table of 131k ints compared to encoded 16k chars. 
         ]]
         
         self.total_read.chunks = self.total_read.chunks + 1
         self.total_read.bytes = self.total_read.bytes + dsz
-
-        return dsz
+        
     end
 
     function self:read_n(n)
@@ -158,70 +123,8 @@ function Buffer.new(handle, song_id)
     return self
 end
 
-
--- debug.debug()
-
--- 1 minute Countup Timer - with Ai counting voice
--- https://www.youtube.com/watch?v=TWR9zT1USTQ
-
--- 100 Second Timer with Voice Countdown
--- https://www.youtube.com/watch?v=d6mfvYmSKI8
-
-
---- Plays audio from a given speaker
----@param ccspeaker speaker The name of the speaker peripheral.
----@param buffer table audio data, a list of numerical amplitudes between -128 and 127.
----@param song_id string id of the song that the buffer chunk belongs to.
-local function play_audio_buffer(ccspeaker, buffer, song_id)
-    local speaker_name = peripheral.getName(ccspeaker)
-    while not ccspeaker.playAudio(buffer, STATE.data.volume) do
-        parallel.waitForAny(
-            function() repeat until select(2, os.pullEvent("speaker_audio_empty")) == speaker_name end,
-            function() os.pullEvent("playback_stopped") end
-        )
-        if STATE.data.status<1 or STATE.data.active_stream_id ~= song_id then return end
-
-        -- local event, name = os.pullEvent("speaker_audio_empty")
-        -- if name ~= speaker_name then return end
-    end
-end
-
-
-
--- Decodes the audio chunk, broadcasts the decoded audio buffer over PROTO_AUDIO, and plays on all connected speakers
----@param chunk string a block of 16KiB encoded audio data to feed to the decoder
----@param song_id string id of the song that the chunk belongs to.
-local function play_audio_chunk(chunk, song_id)
-    if not chunk then return end
-
-    -- local chunk, volume =  rednet.receive('PROTO_AUDIO') -- THIS WILL PROB NOT WOKR
-    local buffer = decoder(chunk)
-
-    -- announce.log_message(string.format('chunk type: %s, len: %s / type buffer: %s, maxn: %s', type(chunk), string.len(chunk), type(buffer), table.maxn(buffer)))
-    local play_tasks = {}
-
-    -- rednet.broadcast({ "PLAY", buffer }, 'PROTO_AUDIO')
-
-    for i, speaker in ipairs(speakers) do
-        play_tasks[i] = function() play_audio_buffer(speaker, buffer, song_id) end
-    end
-
-    local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks))
-    if not ok then
-        STATE.data.error_status = "PLAYBACK_ERROR" -- redundant, now set in playback_stopped
-
-        STATE.data.active_stream_id=nil
-        chat.log_message(STATE.data.error_status .. ": " .. err, "ERROR")
-        os.queueEvent("playback_stopped", STATE.data.error_status)
-    else
-        os.queueEvent("request_next_chunk")
-    end
-end
-
-
-
 local last_chunktime = {}
-local delay = {}
+
 --  broadcasts the decoded audio buffer data over PROTO_AUDIO
 local function transmit_audio(data_buffer)
     local buffer = data_buffer:next()
@@ -233,24 +136,8 @@ local function transmit_audio(data_buffer)
 
     -- debug.debug()
     local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes ~2000 ms! but delay this seems to help with sync issues?
-    
     rednet.broadcast({buffer, sub_state}, 'PROTO_AUDIO') -- takes ~ 36-38 ms, must come after lookup
-    
 
-    -- local send_tasks = {}
-    -- for i, recv_id in ipairs(receivers) do
-    --     send_tasks[i] = function ()
-    --         if (delay[recv_id] or 0) >= 10 then
-    --             local timer_id = os.startTimer(delay[recv_id] / 1000)
-    --             local ev,tid
-    --             repeat ev, tid = os.pullEvent("timer") until tid == timer_id
-    --             delay[recv_id] = nil
-    --         end
-    --         rednet.send(recv_id, {buffer, sub_state}, 'PROTO_AUDIO') 
-    --     end
-    -- end
-    -- pcall(parallel.waitForAll, table.unpack(send_tasks)) -- TODO: prefer over broadcast ?
-    
 
     local timeout = AUDIO_CHUNK_DURATION + 0.2 -- 4 extra ticks / 200ms 
 
@@ -260,10 +147,9 @@ local function transmit_audio(data_buffer)
     local function play_task()
         local n_receivers = #receivers
 
-        while #replies_time < n_receivers do
+        while #replies_time < n_receivers do -- weak check. Doesn't care who replied, only number received
             local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
-            if id then -- weak check. Doesn't care who replied, only number received
-
+            if id then
                 if msg == "request_next_chunk" then
                     local timestamp_ms = os.epoch("local")
 
@@ -275,21 +161,18 @@ local function transmit_audio(data_buffer)
                     chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #replies_id, n_receivers ), "DEBUG")
 
                     last_chunktime[id] = timestamp_ms
-                    
-                end
-                --elseif msg==... do not use message==playback_stopped to decrement n_receivers. Causes unexpected behavior. 
-            else
                 
+                --elseif msg==... do not use message==playback_stopped to decrement n_receivers. Causes unexpected behavior. 
+                end
+                
+            else
                 n_receivers = n_receivers - 1 -- assume connection lost on timeout; lookup too disruptive
                 print('client timed out')
             end
         end
     end
     
-    -- local play_tasks = {}
-    -- for i, recv_id in ipairs(receivers) do play_tasks[i] = play_task end
 
-    -- if #play_tasks < 1 then
     if #receivers < 1 then
         chat.log_message('No remaining listeners... Stopping', 'INFO')
         return M.stop_song()
@@ -299,21 +182,21 @@ local function transmit_audio(data_buffer)
     
     -- THIS is where we can sneak in pre-populate -- while waiting on speakers. 
     -- as long as prepop takes < ~2.75 seconds, it should never cause any delay 
-    -- local ok, err = pcall(parallel.waitForAll, table.unpack(play_tasks), prefill_buffer)
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
     
 
-    -- if #replies == 0 then
-    --     chat.log_message('No remaining listeners... Stopping', 'INFO')
-    --     return M.stop_song()
     if #replies_time > 1 then
         local desync_ms = (math.max(table.unpack(replies_time)) - math.min(table.unpack(replies_time)))
         -- os.queueEvent("log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
         chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #replies_time, #receivers), "INFO")
-        -- for i,id in ipairs(replies_id) do
-        --     delay[id] = (i<#replies and replies[i+1] - replies[i]) or 0
-        --     write(("[%d] %d - %dms : "):format(i, id, delay[id]))
-        -- end
+        if desync_ms > 100 then -- more than 100ms lag time, dig deeper
+            local id_order,delay = {},{}
+            for i,id in ipairs(replies_id) do
+                id_order[i] = ("[%d] %d"):format(i, id)
+                delay[i] = ("%dms"):format((i<#replies_time and replies_time[i+1] - replies_time[i]) or 0)
+            end
+            textutils.tabulate(colors.white, id_order, colors.pink, delay)
+        end
     end
 
 
@@ -331,13 +214,9 @@ end
 
 ---@param data_buffer Buffer holds data
 local function process_audio_data(data_buffer)
-    -- while (not data_buffer.done_write) and STATE.data.active_stream_id == data_buffer.song_id do
     while STATE.data.active_stream_id == data_buffer.song_id and STATE.data.status==1 do
-        -- play_audio_chunk(data_buffer:next(), data_buffer.song_id)
-        -- transmit_audio_chunk(data_buffer:next(), data_buffer.song_id, data_buffer.total_write.chunks)
         transmit_audio(data_buffer)
         parallel.waitForAny(
-        -- function () play_audio_chunk(data_buffer:next(), data_buffer.song_id) end,
             function() os.pullEvent("request_next_chunk") end,
             function() os.pullEvent("playback_stopped") end
         )
@@ -384,35 +263,24 @@ local function advance_queue()
 end
 
 function M.play_song(song_meta)
-    local state = STATE.to_string()
-    local smeta = song_meta and STATE.to_string(song_meta)
     if song_meta and song_meta.id then
         if STATE.data.active_stream_id and STATE.data.active_stream_id ~= song_meta.id then
-            debug.debug()
             M.stop_song() -- if different song currently streaming, stop
         end
             
         STATE.data.active_song_meta = song_meta -- overwrite current meta (may be identical)
     end
     
-    debug.debug()
     STATE.data.status = 1      -- needs to be at end to overwrite stop_song()
-    -- STATE.data.active_stream_id = nil -- whenever this is nil, we will trigger a download on fetch_audio
-    -- os.queueEvent("redraw_screen", "audio.play_song")
+
     os.queueEvent("fetch_audio")
 end
 
 function M.stop_song()
     rednet.broadcast("audio.stop_song", 'PROTO_AUDIO_HALT')
-
-    -- for _, speaker in ipairs(speakers) do
-    --     speaker.stop()
-    --     os.queueEvent("playback_stopped")
-    -- end
     os.queueEvent("playback_stopped") -- pulled by process_audio_data
     STATE.data.active_stream_id = nil
     STATE.data.status = 0
-    -- os.queueEvent("redraw_screen", "audio.stop_song")
 end
 
 function M.skip_song()
@@ -422,23 +290,15 @@ function M.skip_song()
 end
 
 function M.toggle_play_pause()
-    local state_begin = STATE.to_string()
-
-    -- if STATE.data.is_paused or STATE.data.is_paused == nil then -- first click nil
     if STATE.data.status < 1 then
         M.play_song()
     else
         M.stop_song()
     end
-
-    local state_end = STATE.to_string()
-
-    -- debug.debug()
 end
 
 function M.audio_loop()
     local event_filter = {
-        -- ["audio_update"] = true,
         ["fetch_audio"] = true,
         ["audio_chunk_ready"] = true,
         ["playback_stopped"] = true,
@@ -456,16 +316,10 @@ function M.audio_loop()
             local can_play = STATE.data.active_song_meta ~= nil -- if still nil after advance_queue, then queue empty, nothing to play
             local should_play     = STATE.data.status ~= 0 -- if it's -1 or +1, play as soon as data is available
             
-            
             if not can_play then
                 event = "event_cancelled" -- skip the event handling below
                 os.queueEvent("redraw_screen", "audio.audio_loop(event_cancelled)")
             end
-
-
-            local state              = STATE.to_string()
-
-            -- debug.debug()
             
             STATE.broadcast("audio_loop - ".. event) -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
 
@@ -488,14 +342,13 @@ function M.audio_loop()
                 -- debug.debug()
 
                 if should_play then
-                    -- makes more sense to announce here since this is the last moment before audio actually plays
+                    -- announce here, last moment before audio actually plays
                     chat.announce_song(STATE.data.active_song_meta.artist, STATE.data.active_song_meta.name)
                     if dbuffer then
                         dbuffer = dbuffer:destroy() -- if it still exists, the song didn't complete. cannot guarantee clean state
                     end
                     dbuffer = Buffer.new(handle, STATE.data.active_song_meta.id)
 
-                    -- debug.debug()
                     local song_completed = process_audio_data(dbuffer)
                     if song_completed then
                         -- EDGE CASE?: click skip song just as a song ends => skips over a song
@@ -503,7 +356,6 @@ function M.audio_loop()
                         dbuffer = nil -- if completed, don't need to destroy, file handle will have already been closed
                     end
                     STATE.data.active_stream_id = nil -- (re)download on next play, regardless of if finished
-                    -- debug.debug()
                     
                     os.queueEvent('fetch_audio') -- needed to auto play next song
                     

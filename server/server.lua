@@ -26,15 +26,14 @@ STATE.data = {
     queue = {},             -- song queue, list of objects like active_song_meta
     active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str}
     loop_mode = 0,          -- 0: Off, 1: Queue/List, 2: Song
-    volume = 1.5,           -- no longer used server-side, value between 0 and 3 
 
     -- Audio Network State
     active_stream_id = nil, -- The MOST important server state value. This ~= nil IFF there is sound coming out of the speakers (aka song is playing).
 
     last_download_id = nil, -- only accessed by `network`
     is_loading = false,     -- set in `network`, get in client.ui
-    error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR
-    response_handle = nil,  -- since filehandles cannot be easily shared via events or rednet, set a state to read from
+    error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR, false
+    response_handle = nil,  -- ReadHandle from http.request containing binary song data
 }
 
 
@@ -57,7 +56,6 @@ function STATE.broadcast(caller_info)
     os.queueEvent('redraw_screen', "STATE.broadcast" .. ("(%s)"):format(caller_info or ""))
 end
 
-
 ---format state table as string 
 ---@param state? table state to format, default is unabridged server STATE
 ---@return string
@@ -72,8 +70,9 @@ function STATE.to_string(state)
     return pretty.render(pretty.pretty(d_state), 20)
 end
 
---[[ Server Loops ]]
 
+
+--[[ Server Loops ]]
 
 local function server_loop()
     print('[PROTO_SERVER] Server ID: ' .. os.getComputerID())
@@ -129,7 +128,10 @@ local function server_loop()
                     STATE.data.status = 1
                     os.queueEvent('fetch_audio') -- TODO: monitor for interaction with Play Now
                 end
-                STATE.broadcast('PRO:S_queue: '..code) -- fetch audio already broadcasts state
+                if code then -- code shouldn't be able be nil, but it was? TODO
+                    STATE.broadcast('PRO:S_queue: '..code) -- fetch audio already broadcasts state
+                end
+                
             end,
 
             function()
@@ -168,7 +170,8 @@ local function server_event_loop()
                 chat.log_message(message, msg_type)
             end,
             function()
-                local ev, user, message, uuid, ishidden = os.pullEvent("chat") -- only fires if a *real* chatBox is peripheral is attached
+                -- only fires if a real (Advanced Peripherals) chatBox is attached
+                local ev, user, message, uuid, ishidden = os.pullEvent("chat")
                 if message == 'reboot' then
                     chat.log_message("reboot issued", "INFO")
                     rednet.broadcast('reboot', 'PROTO_REBOOT')

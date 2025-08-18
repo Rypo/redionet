@@ -1,7 +1,9 @@
+--[[
+    Receiver module
+    Handles server communications and audio playback.
+]]
+
 local speaker = peripheral.find("speaker")
-
-local decoder = require("cc.audio.dfpwm").make_decoder()
-
 
 if not speaker then
     -- stub for coms only pocket. TODO: Sensible coms only api.
@@ -31,23 +33,14 @@ end
 ---@param code string [NOW, NEXT, ADD]
 function M.send_server_queue(result, code)
     rednet.send(SERVER_ID, {code, result},  "PROTO_SERVER_QUEUE")
-    os.queueEvent('sync_state') -- server already automatically send state update response 
+    os.queueEvent('sync_state') -- server already automatically send state update response, might be redundant  
 end
-
--- function M.send_play_song(meta_data)
---     rednet.send(SERVER_ID, {"PLAY", meta_data}, "PROTO_SERVER")
---     os.queueEvent('sync_state')
--- end
--- function M.send_stop_song()
---     rednet.send(SERVER_ID, {"STOP", nil}, "PROTO_SERVER")
---     os.queueEvent('sync_state')
--- end
 
 ---@param code string [TOGGLE, SKIP, LOOP, STATE]
 ---@param loop_mode? number loop mode [0,1,2] for server playback (only applicable for code=LOOP)
 function M.send_server_player(code, loop_mode)
     rednet.send(SERVER_ID, {code, loop_mode},  "PROTO_SERVER_PLAYER")
-    os.queueEvent('sync_state') -- server already automatically send state update response 
+    os.queueEvent('sync_state') -- server already automatically send state update response, might be redundant 
 end
 
 function M.toggle_play_mute()
@@ -76,12 +69,10 @@ end
 
 local function play_audio(buffer, state)
     if not buffer then return end
-    -- buffer = decoder(buffer)
     -- DBGMON('volume: ' .. CSTATE.volume)
-    while not speaker.playAudio(buffer, CSTATE.volume) do
+    while not speaker.playAudio(buffer, CSTATE.volume) do -- TODO: CSTATE.is_muted and 0 or CSTATE.volume 
         -- DBGMON({volume = CSTATE.volume})
         parallel.waitForAny(
-            -- function() repeat until select(2, os.pullEvent("speaker_audio_empty")) == speaker_name end,
             function() os.pullEvent("speaker_audio_empty") end,
             function()
                 os.pullEvent("playback_stopped")
@@ -95,14 +86,12 @@ end
 
 
 function M.receive_loop()
-    -- print('StartLoop: PROTO_AUDIO: ' .. host_name)
     local id, message
 
     while true do
         parallel.waitForAny(
             function ()
                 id, message = rednet.receive('PROTO_AUDIO')
-                -- local msg_code, payload = table.unpack(message)
                 
                 if CSTATE.is_paused then
                     rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT') -- still need to respond to differentiate from connection lost
@@ -132,8 +121,5 @@ function M.receive_loop()
     end
 end
 
-
--- parallel.waitForAny(receive_audio_loop, receive_state_loop)
--- parallel.waitForAny(receive_loop)
 
 return M

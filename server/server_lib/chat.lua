@@ -1,8 +1,13 @@
+--[[
+    Chat module
+    Handles song announcements and information logging
+]]
+
 ---apply chatBox style formatting to parenthesized label text
 ---@param paren_text string
 ---@param paren_style? string options: "[]","<>", "()". default "[]"
 ---@param paren_color? string MoTD color code. Default: "&f"
----@return unknown
+---@return string
 local function format_paren(paren_text, paren_style, paren_color)
     paren_color = paren_color or "&f"
     paren_style = paren_style or "[]"
@@ -62,18 +67,18 @@ local M = {}
 
 
 function M.announce_song(artist, song_title)
+    -- Song notification in chat
     if not playerDetector then
         local label_col, artist_col, song_col = "&e", "&c", "&f&o" -- yellow, light_red, white-italic
         return chatBox.sendMessage(artist_col..artist.."&r - "..song_col..song_title, label_col.."Now Playing", "[]", label_col) -- &r : reset style
     end
 
-    
+    -- Fancy song notification in upper right of screen
     for i, username in ipairs(playerDetector.getOnlinePlayers()) do
         chatBox.sendToastToPlayer(song_title, "Now Playing", username, "&4&l"..artist, "()", "&c&l") -- dark_red-bold, light_red-bold
     end
     
 end
-
 
 --- Write text in the chat or debugging file
 ---@param message string|table contents to log
@@ -83,40 +88,18 @@ function M.log_message(message, msg_type)
     if type(message) == "table" then
         message = STATE.to_string(message)
     end
+    
     if msg_type == "ERROR" then
         local log_msg = string.format("[%s] (%s) %s", msg_type, os.date("%Y-%m-%d %H:%M:%S"), message .. "\n")
         io.open('.logs/server.log', 'a'):write(log_msg):close()
     end
-    local msg_col = msg_colors[msg_type] or "&0&k" -- defaults to obfuscated black
     
-    if periphemu or msg_type == "ERROR" then -- don't _actually_ send chat messages unless it's an error
+    local msg_col = msg_colors[msg_type] or "&0" -- defaults to black
+    
+    if msg_type == "ERROR" or periphemu then -- don't _actually_ send chat messages unless it's an error
         chatBox.sendMessage(message, msg_col..msg_type, "[]", "&d")
     else
         motd_to_termcolor(format_paren(msg_col..msg_type, "[]", msg_col).." "..message)
-    end
-end
-
-
-function M.announce_loop()
-    print('StartLoop: Announce')
-    local id, message
-    local cooldown_song_announce = 3.0 -- Seconds between messages to avoid announcement spam
-    while true do
-        id, message = rednet.receive('PROTO_ANNOUNCE')
-        local msg_type, payload = table.unpack(message)
-
-        if msg_type == 'SONG' then
-            local artist, song_title = table.unpack(payload)
-            M.announce_song(artist, song_title)
-            sleep(cooldown_song_announce)
-        elseif msg_type == 'PLAYER' then
-            local msg_col = "&f"
-            local username, pmsg = table.unpack(payload)
-            chatBox.sendMessage(pmsg, msg_col..username, "<>", "&f")
-        else
-            M.log_message(payload, msg_type)
-        end
-
     end
 end
 
