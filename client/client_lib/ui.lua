@@ -3,7 +3,6 @@
     Handles all screen drawing and user input.
 ]]
 
-
 local net = require("client_lib.net")
 local receiver = require("client_lib.receiver")
 
@@ -29,7 +28,6 @@ config.ui = {
     -- Now Playing Tab
     play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop ", label_mute = " Mute " },
     skip_button = { x = 9, y = 6, width = 6, label = " Skip " },
-    -- loop_button = { x = 16, y = 6, width = 12, labels = { " Loop Off ", " Loop Queue ", " Loop Song " } },
     loop_button = { x = 16, y = 6, width = 11, labels = { " Loop Off ", " Loop List ", " Loop Song " } },
     volume_slider = { x = 2, y = 8, width = 25 },
     queue = { start_y = 10, height = 2 },
@@ -450,7 +448,7 @@ local function delay_flash(menu_button)
     term.setCursorPos(2, menu_button.y)
     term.clearLine()
     term.write(menu_button.label)
-    sleep(0.2) -- TODO: this can't disrupt audio play back because UI loop is parallel isolated, right?  -- https://tweaked.cc/module/_G.html#v:sleep
+    os.sleep(0.2) -- note: thread events discarded during sleep, okay?  -- https://tweaked.cc/module/_G.html#v:sleep
 end
 
 local function handle_click(button, x, y)
@@ -466,20 +464,23 @@ local function handle_click(button, x, y)
         if y == config.ui.menu_play_now.y then -- Play now
             btn_clicked = config.ui.menu_play_now
             code = "NOW"
-            -- receiver.send_play_song(result)
 
         elseif y == config.ui.menu_play_next.y then -- Play next
             btn_clicked = config.ui.menu_play_next
             code = "NEXT"
-            -- receiver.send_play_next(result)
 
         elseif y == config.ui.menu_add_to_queue.y then -- Add to queue
             btn_clicked = config.ui.menu_add_to_queue
             code = "ADD"
-            -- receiver.send_add_queue(result)
+        
+        elseif y == config.ui.menu_cancel.y then -- Cancel
+            btn_clicked = config.ui.menu_cancel
+            code = nil
+        else
+            return -- no op
         end
 
-        if btn_clicked then
+        if btn_clicked and button~=0 then -- no flash for hotkey
             delay_flash(btn_clicked)
         end
 
@@ -505,7 +506,6 @@ local function handle_click(button, x, y)
     if M.state.active_tab == 1 then -- Now Playing Tab
         
         if x == 1 and y == config.ui.play_button.y then -- click server play status tab
-            -- receiver.send_toggle_play_pause() 
             receiver.send_server_player("TOGGLE") -- global play/pause
 
         elseif y == config.ui.play_button.y then
@@ -519,7 +519,6 @@ local function handle_click(button, x, y)
                 end
             
             elseif is_in_box(x, y, config.ui.skip_button) and buttons_enabled then
-                -- receiver.send_skip_song()
                 receiver.send_server_player("SKIP")
             
             elseif is_in_box(x, y, config.ui.loop_button) then
@@ -558,6 +557,14 @@ local function handle_click(button, x, y)
     end
 end
 
+local function handle_drag(button, x, y)
+    if button > 1 then return end
+    if M.state.active_tab == 1 and y == config.ui.volume_slider.y and is_in_box(x, y, config.ui.volume_slider) then
+        CSTATE.volume = (x - config.ui.volume_slider.x) / (config.ui.volume_slider.width - 1) * 3
+        M.redraw_screen()
+    end
+end
+
 local function handle_key_press(key, is_held)
     local key_name = keys.getName(key)
     if M.state.active_tab == 1 then -- Now Playing Tab Hotkeys
@@ -567,7 +574,7 @@ local function handle_key_press(key, is_held)
         end
         
     elseif M.state.active_tab == 2 then -- Search Tab Hotkeys
-        if key_name == "left" then
+        if key_name == "left" and not M.state.in_search_result_view then
             M.state.active_tab = 1
             M.redraw_screen()
         
@@ -649,11 +656,10 @@ function M.ui_loop()
                 end,
 
                 function ()
-                    local ev, button, x, y  = os.pullEvent("mouse_drag")
-                    if M.state.active_tab == 1 and y == config.ui.volume_slider.y and is_in_box(x, y, config.ui.volume_slider) then
-                        CSTATE.volume = (x - config.ui.volume_slider.x) / (config.ui.volume_slider.width - 1) * 3
-                        M.redraw_screen()
-                    end
+                    -- drag interferes with click events, ignore on search tab
+                    local evname = M.state.active_tab == 1 and "mouse_drag" or "IGNORE_mouse_drag"
+                    local ev, button, x, y  = os.pullEvent(evname)
+                    handle_drag(button, x, y)
                 end,
 
                 function ()
