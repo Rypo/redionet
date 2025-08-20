@@ -6,6 +6,8 @@
 peripheral.find("modem", rednet.open)
 if not rednet.isOpen() then error("Failed to establish rednet connection. Attach a modem to continue.", 0) end
 
+HOST_NAME = 'client_'..os.getComputerID()
+
 local function wait_heartbeat()
     local server_id =  rednet.lookup('PROTO_SERVER')
     if server_id then
@@ -15,6 +17,7 @@ local function wait_heartbeat()
 
         if response == "PONG" then
             SERVER_ID = id
+            print('Server Id: ', SERVER_ID)
             return SERVER_ID
         end
     else
@@ -24,14 +27,13 @@ local function wait_heartbeat()
     return wait_heartbeat()
 end
 
-
-HOST_NAME = 'client_'..os.getComputerID()
-
-local has_speaker = peripheral.find("speaker")
-if has_speaker then
-    rednet.host('PROTO_AUDIO', HOST_NAME)
-else
-    -- Recent CC:tweaked versions may support two peripherals on pocket - https://github.com/cc-tweaked/CC-Tweaked/commit/0a0c80d
+local function check_speaker()
+    if peripheral.find("speaker") then
+        rednet.host('PROTO_AUDIO', HOST_NAME)
+        return true
+    end
+    -- Recent CC:tweaked versions may support two peripherals on pocket 
+    -- https://github.com/cc-tweaked/CC-Tweaked/commit/0a0c80d
     local no_warn = pocket and not pocket.equipBottom
     if no_warn then
         print('Pocket Client (communication only)')
@@ -41,11 +43,30 @@ else
         print('WARN: No speaker attached. To receive audio on this device, attach speaker and reboot.')
         term.setTextColor(prev_color)
     end
+    return false
+end
+
+local monitor = peripheral.find('monitor')
+if monitor then monitor.setTextScale(0.5) end
+function DBGMON(message)
+    if not monitor then return end
+
+    if type(message) == "table" then
+        local pp = require('cc.pretty')
+        message = pp.render(pp.pretty(message), 20)
+    end
+    local time_ms = os.epoch("local")
+    local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
+    local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
+    local bterm = term.current()
+    term.redirect(monitor)
+    print(log_msg)
+    term.redirect(bterm)
 end
 
 
+local has_speaker = check_speaker()
 SERVER_ID = wait_heartbeat()
-print('Server Id: ', SERVER_ID)
 
 local ui = require("client_lib.ui")
 local receiver = require("client_lib.receiver")
