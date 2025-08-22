@@ -39,10 +39,10 @@ function M.http_search_loop()
         if event:find('http') then
             local url = eventData[2]
             local last_search_url = M.format_search_url(CSTATE.last_search_query)
-
-            if event == "http_success" then
-                local handle = eventData[3]
-                if url == last_search_url then
+            
+            if url == last_search_url then
+                if event == "http_success" then
+                    local handle = eventData[3]
                     local data = textutils.unserialiseJSON(handle.readAll())
                     if data then
                         CSTATE.search_results = filter_results(data)
@@ -51,14 +51,13 @@ function M.http_search_loop()
                         CSTATE.error_status = "SEARCH_ERROR"
                     end
 
-                end
-            elseif event == "http_failure" then
-                local err = eventData[3]
-                if url == last_search_url then
+                elseif event == "http_failure" then
+                    local err = eventData[3]
                     CSTATE.error_status = "SEARCH_ERROR"
                 end
+                
+                os.queueEvent("redraw_screen")
             end
-            os.queueEvent("redraw_screen")
         end
     end
 end
