@@ -45,11 +45,7 @@ end
 
 function M.toggle_play_mute()
     CSTATE.is_paused = false
-    if CSTATE.volume == 0 then
-        CSTATE.volume = 1.5 -- TODO: restore to last value
-    else
-        CSTATE.volume = 0
-    end
+    CSTATE.is_muted = not CSTATE.is_muted
 end
 
 function M.toggle_play_pause()
@@ -69,9 +65,9 @@ end
 
 local function play_audio(buffer, state)
     if not buffer then return end
-    -- DBGMON('volume: ' .. CSTATE.volume)
-    while not speaker.playAudio(buffer, CSTATE.volume) do -- TODO: CSTATE.is_muted and 0 or CSTATE.volume 
-        -- DBGMON({volume = CSTATE.volume})
+    DBGMON(('play_audio - chunk: %d, song: %s,  vol: %0.2f'):format(state.chunk_id, state.song_id, CSTATE.volume))
+    while not speaker.playAudio(buffer, CSTATE.is_muted and 0 or CSTATE.volume) do
+        DBGMON('SPEAKER FULL')
         parallel.waitForAny(
             function() os.pullEvent("speaker_audio_empty") end,
             function()

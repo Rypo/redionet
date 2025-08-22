@@ -44,6 +44,21 @@ config.ui = {
 }
 
 config.client_mode_mute = false
+--[[ 
+Mute Mode
+- Cons: Significant delay on "Play/Mute" (waiting for speaker buffer clear)
+- Pros: Other clients are completely unaffected by a client's Mute/Play
+
+Local Stop Mode
+- Cons: Other clients need to stop and jump forward (speaker buffer clear) whenever a client hits "Play"
+- Pros: Near instant button feedback
+
+The Ideal Mode (TODO)
+- client click "Stop", instant stop, other clients unaffected 
+- client click "Play", delay (w/ "joining.." message) until other clients' speaker buffers are empty, then begin playback, other clients unaffected 
+- pinning down the point of safe entry and how to delay w/o timeout until it's reached has been the key implementation challenge thus far
+]]
+
 
 -- UI CLIENT STATE --
 M.state = {}
@@ -162,7 +177,7 @@ local function draw_now_playing_tab()
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
 
     if config.client_mode_mute then
-        term.write((CSTATE.volume ~= 0) and btn_cfg.label_mute or btn_cfg.label_play)
+        term.write((CSTATE.is_muted == false) and btn_cfg.label_mute or btn_cfg.label_play)
     else
         term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
     end
