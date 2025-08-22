@@ -135,7 +135,14 @@ local function transmit_audio(data_buffer)
     }
 
     -- debug.debug()
-    local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes ~2000 ms! but delay this seems to help with sync issues?
+    local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes a minimum of 2 seconds. But delay this seems to help with sync issues?
+    -- https://github.com/cc-tweaked/CC-Tweaked/blob/9e233a9/projects/core/src/main/resources/data/computercraft/lua/rom/apis/rednet.lua#L422
+    
+    if #receivers == 0 then
+        chat.log_message('No visible client connections... Stopping', 'INFO')
+        return M.stop_song()
+    end
+    
     rednet.broadcast({buffer, sub_state}, 'PROTO_AUDIO') -- takes ~ 36-38 ms, must come after lookup
 
 
@@ -144,19 +151,23 @@ local function transmit_audio(data_buffer)
     local replies_id = {}
     local replies_time = {}
 
+    local num_resp, num_next = 0, 0
     local function play_task()
         local n_receivers = #receivers
 
-        while #replies_time < n_receivers do -- weak check. Doesn't care who replied, only number received
+        while num_resp < n_receivers do -- weak check. Doesn't care who replied, only number received
             local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
             if id then
+                num_resp = num_resp + 1
+
                 if msg == "request_next_chunk" then
+                    num_next = num_next + 1
                     local timestamp_ms = os.epoch("local")
 
                     table.insert(replies_id, id)
                     table.insert(replies_time, timestamp_ms)
                     local play_duration = timestamp_ms - (last_chunktime[id] or timestamp_ms)
-                   
+                
                     -- os.queueEvent("log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #replies, n_receivers), "DEBUG")
                     chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #replies_id, n_receivers ), "DEBUG")
 
@@ -164,7 +175,7 @@ local function transmit_audio(data_buffer)
                 
                 --elseif msg==... do not use message==playback_stopped to decrement n_receivers. Causes unexpected behavior. 
                 end
-                
+
             else
                 n_receivers = n_receivers - 1 -- assume connection lost on timeout; lookup too disruptive
                 print('client timed out')
@@ -173,17 +184,17 @@ local function transmit_audio(data_buffer)
     end
     
 
-    if #receivers < 1 then
-        chat.log_message('No remaining listeners... Stopping', 'INFO')
-        return M.stop_song()
-    end
 
     local prefill_buffer = function () data_buffer:read_n(2) end
     
     -- THIS is where we can sneak in pre-populate -- while waiting on speakers. 
-    -- as long as prepop takes < ~2.75 seconds, it should never cause any delay 
+    -- as long as prepop takes < ~2.75 seconds, it should never cause any delay
+    -- alternatively, could do in parallel with lookup, which we know will take a fixed 2s
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
-    
+    if num_next == 0 then
+        chat.log_message('No remaining listeners... Stopping', 'INFO')
+        return M.stop_song()
+    end
 
     if #replies_time > 1 then
         local desync_ms = (math.max(table.unpack(replies_time)) - math.min(table.unpack(replies_time)))
@@ -337,7 +348,7 @@ function M.audio_loop()
                 
                 local handle = STATE.data.response_handle
                 if not handle then error('bad state: read handle is nil', 0) end -- appease the linter (state should be unreachable)
-                local h_pos = handle.seek()
+                -- local h_pos = handle.seek()
 
                 -- debug.debug()
 

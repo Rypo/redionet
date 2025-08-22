@@ -6,7 +6,8 @@
 peripheral.find("modem", rednet.open)
 if not rednet.isOpen() then error("Failed to establish rednet connection. Attach a modem to continue.", 0) end
 
-HOST_NAME = 'client_'..os.getComputerID()
+CLIENT_ID = os.getComputerID()
+HOST_NAME = 'client_'..CLIENT_ID
 
 local function wait_heartbeat()
     local server_id =  rednet.lookup('PROTO_SERVER')
@@ -79,7 +80,7 @@ CSTATE = {
     last_search_query = nil,    -- set in `net`, used in `net` and `ui`  
     search_results = nil,       -- list of at most 21 song_meta tables
     is_paused = false,          -- if true, client stops processing music data transmissions
-    volume = 1.5,               -- value between 0 and 3 
+    volume = 1.5,               -- value between 0 and 3
     is_muted = false,
     error_status = false,       -- SEARCH_ERROR, false
     server_state = {
@@ -96,6 +97,7 @@ CSTATE = {
 
 
 local function client_loop()
+    local speaker = peripheral.find("speaker")
     while true do
 
         parallel.waitForAny(
@@ -113,6 +115,7 @@ local function client_loop()
             end,
             function ()
                 rednet.receive('PROTO_REBOOT')
+                if monitor then monitor.clear() end
                 os.reboot()
             end,
             --[[
@@ -122,15 +125,18 @@ local function client_loop()
                 os.pullEvent('sync_state')
                 rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
             end,
+            --[[
+                Peer Message -> Client Event 
+            ]]
             function ()
-                os.pullEvent('host_audio')
-                if has_speaker then
-                    rednet.host('PROTO_AUDIO', HOST_NAME) -- suprisingly expensive, too disruptive for sync call between UI 
+                -- flush the other speaker buffers whenever a client resumes play
+                -- this forces all clients to remain in sync
+                -- TODO: call this when new client created as well
+                local id = rednet.receive('PEER_SYNC')
+                if id ~= CLIENT_ID and speaker then
+                    speaker.stop()
+                    os.queueEvent("playback_stopped")
                 end
-            end,
-            function ()
-                os.pullEvent('unhost_audio')
-                rednet.unhost('PROTO_AUDIO', HOST_NAME)
             end
         )
 
