@@ -89,6 +89,8 @@ end
 
 function M.receive_loop()
     local id, message
+    
+    rednet.broadcast('sync', 'PEER_SYNC') -- clients that late join may be ahead, needs peer sync
 
     while true do
         parallel.waitForAny(

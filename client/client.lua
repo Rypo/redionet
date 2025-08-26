@@ -131,7 +131,6 @@ local function client_loop()
             function ()
                 -- flush the other speaker buffers whenever a client resumes play
                 -- this forces all clients to remain in sync
-                -- TODO: call this when new client created as well
                 local id = rednet.receive('PEER_SYNC')
                 if id ~= CLIENT_ID and speaker then
                     speaker.stop()
