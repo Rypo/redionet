@@ -28,11 +28,6 @@ filemap["client"] = {
     ["./client_lib/ui.lua"] = BASE_URL ..       "client/client_lib/ui.lua",
 }
 
-if not http then
-    printError("OpenInstaller requires the http API")
-    printError("Set http.enabled to true in the ComputerCraft config")
-    return
-end
 
 
 
@@ -50,40 +45,88 @@ local function writeColoured(text, colour)
     write(text)
 end
 
-local function question(message)
+local function tf_question(message)
     local previous_colour = term.getTextColour()
 
     writeColoured(message .. " ", colors.cyan)
-    -- writeColoured("Y", colors.lime) -- 5	
-    -- writeColoured("/", colors.orange) -- 1	
-    -- writeColoured("n", colors.red) -- e
-    -- writeColoured("] ", colors.orange)
     term.blit("[Y/n] ", "050e0f", "ffffff") -- 0-white, 5-lime, e-red; f-black
     -- Reset colour
     term.setTextColour(colors.white)
-
+    local c_x, c_y = term.getCursorPos()
     local input_char = read():sub(1, 1):lower()
-    local accept_chars = { "o", "k", "y", "" }
     
+    local accept_chars = { "o", "k", "y", "" }
+    if input_char=="" then -- show the default
+        term.setCursorPos(c_x, c_y)
+        term.blit("Y", "5", "f")
+        term.setCursorPos(1, c_y+1)
+    end
     term.setTextColour(previous_colour)
 
     return tableContains(accept_chars, input_char)
 end
 
-local function test_requirements()
+local function mc_question(prompt_text, options, active_idx)
+    active_idx = active_idx or 1
+    local x,y = term.getCursorPos()
+
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.cyan)
+    term.clearLine()
+    write(prompt_text)
+    
+    for i,opt in ipairs(options) do
+        term.setCursorPos(2, y+i)
+        if i == active_idx then
+            term.setBackgroundColor(colors.white)
+            term.setTextColour(colors.gray)
+        else
+            term.setBackgroundColor(colors.black)
+            term.setTextColour(colors.white)
+        end
+        term.clearLine()
+        write(opt)
+    end
+
+    local key_name
+    repeat
+        local ev, key, is_held = os.pullEvent("key")
+        key_name = keys.getName(key)
+        if key_name == "up" then
+            active_idx = active_idx > 1 and active_idx-1 or #options
+            term.setCursorPos(1, y)
+            return mc_question(prompt_text, options, active_idx)
+        elseif key_name == "down" then
+            active_idx = 1 + (active_idx % #options)
+            term.setCursorPos(1, y)
+            return mc_question(prompt_text, options, active_idx)
+        end
+    until key_name == "enter"
+
+    term.setBackgroundColor(colors.black)
+    term.setCursorPos(1, y + #options + 1)
+
+    return active_idx
+end
+
+local function check_requirements()
+    if not http then
+        printError("OpenInstaller requires the http API")
+        printError("Set http.enabled to true in the ComputerCraft config")
+        error("http disabled.", 0)
+    end
+
     local ok, dfpwm = pcall(require, "cc.audio.dfpwm")
     if not ok then
         printError("DFPWM required (CC version: 0.100.0 and later)")
         printError("Version found: ".._HOST)
 
-        if not question("Download anyway?") then
+        if not tf_question("Download anyway?") then
             error("Aborted.", 0)
         end
     end
     
 end
-
-local unknown_error = "Unknown error"
 
 local function http_get(url)
     local valid_url, error_message = http.checkURL(url)
@@ -94,7 +137,7 @@ local function http_get(url)
 
     local response, http_error_message = http.get(url, nil, true)
     if not response then
-        printError(('Failed to download "%s" (%s).'):format(url, http_error_message or unknown_error))
+        printError(('Failed to download "%s" (%s).'):format(url, http_error_message or "Unknown error"))
         return
     end
 
@@ -108,46 +151,64 @@ local function http_get(url)
     return response_body
 end
 
+local function write_file(response_body, resolved_path)
+    local file, file_open_error_message = fs.open(resolved_path, "wb")
+    if not file then
+        error(('Failed to save "%s" (%s).'):format(resolved_path, file_open_error_message or "Unknown error"), 0)
+    end
+
+    file.write(response_body)
+    file.close()
+end
+
+
 local function check_peripherals(device_type)
     -- https://www.reddit.com/r/ComputerCraft/comments/1cc2y94/cc_character_cheat_sheet/#lightbox
     local function locate(peripheral_type)
         if peripheral.find(peripheral_type) then
-            writeColoured(('\16 - %s : Detected\n'):format(peripheral_type), colors.lime)
+            writeColoured(('ok - %s: Detected\n'):format(peripheral_type), colors.lime) --\215 )\16
             return true
         end
         return false
     end
 
     if not locate("modem") then
-        writeColoured(('\215 - %s : Missing - Required. Attach before running.\n'):format("modem"), colors.red)
+        writeColoured(('\19 - %s: Missing. Attach before running!\n'):format("modem"), colors.red)
     end
 
     if device_type == 'server' then
         if not locate("chatBox") then
-            writeColoured(('\21 - %s : Missing - Optional\n'):format("chatBox"), colors.yellow)
-            -- Attach for song announcements. (requires Advanced Peripherals mod)
+            writeColoured(('\186 - %s: Missing (optional)\n'):format("chatBox"), colors.lightBlue)
+            -- Attach for song announcements. (requires Advanced Peripherals mod) \21
         end
         if not locate("playerDetector") then
-            writeColoured(('\21 - %s : Missing - Optional\n'):format("playerDetector"), colors.yellow)
-            -- Attach for fancy song announcements. (requires Advanced Peripherals mod)
+            writeColoured(('\186 - %s: Missing (optional)\n'):format("playerDetector"), colors.lightBlue)
+            -- Attach for fancy song announcements. (requires Advanced Peripherals mod) \177
         end
     else
-        if not locate("speaker") then
-            writeColoured(('\19 - %s : Missing - Recommended. Attach or device cannot play music!\n'):format("speaker"), colors.orange)
+        local pocket_client = pocket and not pocket.equipBottom
+        if pocket_client then
+            writeColoured(('Pocket Client (no audio)\n'), colors.green)
+        elseif not locate("speaker") then
+            writeColoured(('\15 - %s: Missing. Attach to play music.\n'):format("speaker"), colors.orange)
         end
     end
 end
 
+
+
 local function main()
-    test_requirements()
+    term.clear()
+    term.setCursorPos(1, 1)
+    check_requirements()
 
-    local is_client = question('Assign Client? ("n" to assign Server.. only do this once!)')
-    local device_type = is_client and 'client' or 'server'
-
-
+    local choice_idx = mc_question('Assign this computer as', {'Client', 'Server   \4 only set one per world \4'})
+    local device_type = ({'client', 'server'})[choice_idx]
+    
     local files = filemap[device_type]
 
-    local run_on_start = question('Run on startup?')
+    local run_on_start = tf_question('Run on startup?')
+
     if run_on_start then
         files["./startup/init.lua"] = BASE_URL ..  device_type ..  "/startup/init.lua"
     end
@@ -157,29 +218,27 @@ local function main()
         local can_write = true
         
         if fs.exists(resolved_path) then
-            can_write = question(('"%s" already exists.\n\187 Overwrite?'):format(path))
+            term.setTextColour(colors.yellow)
+            print(("'%s' already exists."):format(path))
+            can_write = tf_question(('\187 Overwrite?'):format(path))
         end
         
         if can_write then
             local response_body = http_get(download_url)
 
-            local file, file_open_error_message = fs.open(resolved_path, "wb")
-            if not file then
-                error(('Failed to save "%s" (%s).'):format(path, file_open_error_message or unknown_error), 0)
-            end
-
-            file.write(response_body)
-            file.close()
+            write_file(response_body, resolved_path)
 
             term.setTextColour(colors.lime)
             print(('Downloaded "%s"'):format(path))
         end
     end
 
-    print("Done!")
+    term.setTextColor(colors.white)
+    print("Done! Checking peripherals..")
     check_peripherals(device_type)
+
     term.setTextColor(colors.lightGray)
-    print( 'To execute program: ' .. (run_on_start and "Reboot computer now" or ("Run `%s`"):format(device_type)))
+    print('\n' .. 'To execute program: ' .. (run_on_start and "Reboot computer now" or ("Run `%s` in terminal"):format(device_type)))
 
 
 end
