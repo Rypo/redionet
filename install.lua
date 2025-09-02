@@ -9,6 +9,8 @@ Github Repository: https://github.com/Rypo/redionet
 -- Install script based on: https://github.com/CC-YouCube/installer/blob/main/src/installer.lua
 -- License: GPL-3.0
 -- OpenInstaller v1.0.0 (based on wget)
+local prog_args = { ... }
+
 
 local BASE_URL = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/"
 
@@ -28,7 +30,46 @@ filemap["client"] = {
     ["./client_lib/ui.lua"] = BASE_URL ..       "client/client_lib/ui.lua",
 }
 
+local function load_settings(verbose)
+    settings.define("redionet.device_type", {
+        description = "Designation for this computer. 'client' or 'server'",
+        type = "string",
+    })
+    settings.define("redionet.run_on_boot", {
+        description = "Whether to autorun on computer startup",
+        type = "boolean",
+    })
+    -- *very* important to load before calling settings.save
+    -- save overwrites the file, deleting anything not defined. 
+    settings.load()
 
+    if not verbose then return end
+
+    -- print config if verbose
+    local key_values = {}
+
+    for _,option in ipairs(settings.getNames()) do
+        local i_end = select(2, string.find(option, 'redionet'))
+        if i_end then
+            table.insert(key_values, {(" %s"):format(option:sub(i_end+1)), ("= %s"):format(settings.get(option))})
+        end
+    end
+    if #key_values > 0 then
+        term.setTextColor(colors.cyan)
+        print('Redionet Settings') -- \149 
+
+        term.setTextColor(colors.lightGray)
+        print('redionet')
+        textutils.tabulate(table.unpack(key_values))
+        
+        term.setTextColor(colors.white)
+        write('press any key to continue..')
+        term.setCursorBlink(true)
+        os.pullEvent('key')
+        write('\n')
+        term.setCursorBlink(false)
+    end
+end
 
 
 local function tableContains(_table, element)
@@ -197,19 +238,21 @@ end
 
 
 
-local function main()
+local function fresh_install()
     term.clear()
     term.setCursorPos(1, 1)
     check_requirements()
 
     local choice_idx = mc_question('Assign this computer as', {'Client', 'Server   \4 only set one per world \4'})
     local device_type = ({'client', 'server'})[choice_idx]
+    settings.set('redionet.device_type', device_type)
     
     local files = filemap[device_type]
+    
+    local run_on_boot = tf_question('Run on startup?')
+    settings.set('redionet.run_on_boot', run_on_boot)
 
-    local run_on_start = tf_question('Run on startup?')
-
-    if run_on_start then
+    if run_on_boot then
         files["./startup/init.lua"] = BASE_URL ..  device_type ..  "/startup/init.lua"
     end
 
@@ -238,10 +281,69 @@ local function main()
     check_peripherals(device_type)
 
     term.setTextColor(colors.lightGray)
-    print('\n' .. 'To execute program: ' .. (run_on_start and "Reboot computer now" or ("Run `%s` in terminal"):format(device_type)))
+    print('\n' .. 'To execute program: ' .. (run_on_boot and "Reboot computer now" or ("Run `%s` in terminal"):format(device_type)))
 
-
+    settings.save()
 end
 
+local function update(device_type)
+    local files = filemap[device_type]
+    
+    local run_on_boot = settings.get('redionet.run_on_boot', fs.exists(shell.resolve("./startup/init.lua")))
+
+    if run_on_boot then
+        files["./startup/init.lua"] = BASE_URL ..  device_type ..  "/startup/init.lua"
+    end
+    
+    local files_updated = false
+
+    for path, download_url in pairs(files) do
+        local resolved_path = shell.resolve(path)
+        local response_body = http_get(download_url)
+
+        local file, fopen_error = fs.open(resolved_path, 'rb')
+        local cur_contents
+        if file then
+            cur_contents = file.readAll()
+            file.close()
+        end
+        
+        if cur_contents and cur_contents == response_body then
+            writeColoured(('Up to date: "%s"\n'):format(path), colors.lightGray)
+        else
+            write_file(response_body, resolved_path)
+            writeColoured(('Updated: "%s"\n'):format(path), colors.lime)
+            files_updated = true
+        end
+    end
+
+    return files_updated
+end
+
+local function parse_cli_flags()
+    local flags = {
+        force = false,
+        verbose = false,
+    }
+    for _, value in pairs(prog_args) do
+        if value == "-f" or value == "--force-reinstall" then flags.force = true
+        elseif value == "-v" or value == "--verbose" then flags.verbose = true
+        end
+    end
+    return flags
+end
+
+local function main()
+    local flags = parse_cli_flags()
+
+    load_settings(flags.verbose)
+    local device_type = settings.get('redionet.device_type')
+
+    if flags.force or not device_type then
+        fresh_install()
+    else
+        update(device_type)
+    end
+end
 
 main()
