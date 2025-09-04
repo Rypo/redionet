@@ -6,6 +6,8 @@
 peripheral.find("modem", rednet.open)
 if not rednet.isOpen() then error("Failed to establish rednet connection. Attach a modem to continue.", 0) end
 
+SERVER_ID = os.getComputerID()
+-- note: _could_ support multi-server where clients choose "station" via ID..but seems more trouble than it's worth
 rednet.host('PROTO_SERVER', 'server')
 
 local monitor = peripheral.find("monitor")
@@ -152,6 +154,21 @@ local function server_loop()
                     STATE.data.loop_mode = payload
                     STATE.broadcast(dbg)
                 end
+            end,
+            
+            -- Misc Client Communication
+            function ()
+                local cid, client_file_changes = rednet.receive('PROTO_UPDATED')
+                local prev_color = term.getTextColor()
+
+                if client_file_changes then
+                    term.setTextColor(colors.lime)
+                    print(('Client #%d: Updated'):format(cid))
+                else
+                    term.setTextColor(colors.lightGray)
+                    print(('Client #%d: Already up to date'):format(cid))
+                end
+                term.setTextColor(prev_color)
             end
         )
     end
@@ -161,33 +178,62 @@ local function server_event_loop()
     while true do
         parallel.waitForAny(
             function()
-                local ev, origin = os.pullEvent('redraw_screen')
-                print('redraw: ' .. tostring(origin))
-                rednet.broadcast('redraw_screen', 'PROTO_UI')
+                while true do -- occurs frequently, prevent from interrupting other events
+                    local ev, origin = os.pullEvent('redraw_screen')
+                    print('redraw: ' .. tostring(origin))
+                    rednet.broadcast('redraw_screen', 'PROTO_UI')
+                end
             end,
-            function()
-                local ev, message, msg_type = os.pullEvent('log_message')
-                chat.log_message(message, msg_type)
+
+            function ()
+                os.pullEvent('redionet:update')
+                
+                print('Updating...')
+                local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
+                local tabid = shell.openTab('wget run ' .. install_url)
+                shell.switchTab(tabid)
             end,
-            function()
-                -- only fires if a real (Advanced Peripherals) chatBox is attached
-                local ev, user, message, uuid, ishidden = os.pullEvent("chat")
-                if message == 'reboot' then
-                    chat.log_message("reboot issued", "INFO")
-                    rednet.broadcast('reboot', 'PROTO_REBOOT')
-                    os.sleep(0.5)
-                    os.reboot()
+
+            function ()
+                local _, file_changes = os.pullEvent('redionet:update_complete') -- Queued by install script
+                local prev_color = term.getTextColor()
+
+                if file_changes then
+                    term.setTextColor(colors.lime)
+                    print('Server: Updated')
+
+                    os.queueEvent('redionet:reload')
+                else
+                    term.setTextColor(colors.lightGray)
+                    print('Server: Already up to date')
+                    term.setTextColor(prev_color)
                 end
             end
         )
     end
 end
 
+local function system_stop_event()
+    -- The only events that should allow the program to terminate
+    parallel.waitForAny(
+        function ()
+            os.pullEvent('redionet:reload')
+            local tabid = shell.openTab('server')
+            shell.exit()
+        end,
+        function ()
+            os.pullEvent('redionet:reboot')
+            os.reboot()
+        end
+    )
+end
 
 -- Start the main loops
 parallel.waitForAny(
+    system_stop_event,
     server_loop,
     server_event_loop,
     audio.audio_loop,
+    chat.chat_loop,
     network.handle_http_download
 )

@@ -339,11 +339,14 @@ local function main()
     load_settings(flags.verbose)
     local device_type = settings.get('redionet.device_type')
 
+    local file_changes = true
     if flags.force or not device_type then
         fresh_install()
     else
-        update(device_type)
+        file_changes = update(device_type)
     end
+
+    os.queueEvent('redionet:update_complete', file_changes)
 end
 
 main()

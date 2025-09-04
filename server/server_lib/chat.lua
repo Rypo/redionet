@@ -103,5 +103,43 @@ function M.log_message(message, msg_type)
     end
 end
 
+function M.chat_loop()
+    while true do
+        parallel.waitForAny(
+            function()
+                local ev, message, msg_type = os.pullEvent('log_message')
+                M.log_message(message, msg_type)
+            end,
+            
+            function ()
+                -- access chatBox specific behavior without Advanced Peripherals mod
+                local id, message = rednet.receive('PROTO_CHATBOX')
+                local user, uuid = ('computer_#%d'):format(id), ('%08d-%04d-%04d-%04d-%012d'):format(0,0,0,0,id)
+                local ishidden = (message:sub(1,1) == "$")
+                if ishidden then message = message:sub(2) end
+                os.queueEvent("chat", user, message, uuid, ishidden)
+            end,
+
+            function()
+                -- fires if a real (Advanced Peripherals) chatBox is attached or imitated with PROTO_CHATBOX
+                local ev, user, message, uuid, ishidden = os.pullEvent("chat")
+                message = string.lower(message)
+
+                if message == 'reboot' then
+                    M.log_message("reboot issued", "INFO")
+                    rednet.broadcast('reboot', 'PROTO_REBOOT')
+                    os.sleep(0.5)
+                    os.queueEvent('redionet:reboot')
+                -- TODO: elseif message == 'reload' then
+                elseif message == 'update' then
+                    M.log_message("update issued", "INFO")
+                    rednet.broadcast('update', 'PROTO_UPDATE')
+                    os.sleep(0.5)
+                    os.queueEvent('redionet:update')
+                end
+            end
+        )
+    end
+end
 
 return M

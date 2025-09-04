@@ -9,23 +9,60 @@ if not rednet.isOpen() then error("Failed to establish rednet connection. Attach
 CLIENT_ID = os.getComputerID()
 HOST_NAME = 'client_'..CLIENT_ID
 
-local function wait_heartbeat()
-    local server_id =  rednet.lookup('PROTO_SERVER')
-    if server_id then
-        -- if server restarts, lookup is insufficent 
-        rednet.send(server_id, {"PING", {}}, 'PROTO_SERVER')
-        local id, response = rednet.receive(10)
+local monitor = peripheral.find('monitor')
+if monitor then monitor.setTextScale(0.5) end
 
-        if response == "PONG" then
-            SERVER_ID = id
-            print('Server Id: ', SERVER_ID)
-            return SERVER_ID
-        end
-    else
-        sleep(3)
+function DBGMON(message)
+    if not monitor then return end
+
+    if type(message) == "table" then
+        local pp = require('cc.pretty')
+        message = pp.render(pp.pretty(message), 20)
     end
-    print('Waiting for server connection...')
-    return wait_heartbeat()
+    local time_ms = os.epoch("local")
+    local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
+    local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
+    local bterm = term.current()
+    term.redirect(monitor)
+    print(log_msg)
+    term.redirect(bterm)
+end
+
+local function loading_animation(x,y)
+    -- TODO: move to ui
+    local _x,_y = term.getCursorPos()
+    x,y = x or _x, y or _y
+    local function animation()
+        local p_tl, p_tr, p_br, p_bl = 129, 130, 136, 132 -- points
+        local l_t,  l_r,  l_b,  l_l  = 131, 138, 140, 133 -- lines
+        local c_tl, c_tr, c_br, c_bl = 135, 139, 142, 141 -- corners
+        local sym_loop = { l_t, c_tr, l_r, c_br, l_b, c_bl, l_l, c_tl, l_t, p_tr, p_br, p_bl, p_tl, }
+        while true do
+            for _, c in ipairs(sym_loop) do
+                term.setCursorPos(x,y)
+                term.write(string.char(c))
+                os.sleep(0.15)
+            end
+        end
+    end
+    return animation
+end
+
+local function wait_server_connection()
+    write('Waiting for server connection... ')
+    local server_id
+    parallel.waitForAny(loading_animation(), function ()
+        local id, response
+        repeat
+            server_id =  rednet.lookup('PROTO_SERVER')
+            if server_id then
+                rednet.send(server_id, {"PING", {}}, 'PROTO_SERVER')
+                id, response = rednet.receive(2)
+            end
+        until response == "PONG"
+        server_id = id
+    end)
+    return server_id
 end
 
 local function check_speaker()
@@ -47,27 +84,10 @@ local function check_speaker()
     return false
 end
 
-local monitor = peripheral.find('monitor')
-if monitor then monitor.setTextScale(0.5) end
-function DBGMON(message)
-    if not monitor then return end
-
-    if type(message) == "table" then
-        local pp = require('cc.pretty')
-        message = pp.render(pp.pretty(message), 20)
-    end
-    local time_ms = os.epoch("local")
-    local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
-    local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
-    local bterm = term.current()
-    term.redirect(monitor)
-    print(log_msg)
-    term.redirect(bterm)
-end
 
 
 local has_speaker = check_speaker()
-SERVER_ID = wait_heartbeat()
+SERVER_ID = wait_server_connection()
 
 local ui = require("client_lib.ui")
 local receiver = require("client_lib.receiver")
@@ -95,11 +115,11 @@ CSTATE = {
 
 
 
+--[[ Client Loops ]]
 
 local function client_loop()
     local speaker = peripheral.find("speaker")
     while true do
-
         parallel.waitForAny(
             --[[
                 Server Message -> Client Event
@@ -116,7 +136,20 @@ local function client_loop()
             function ()
                 rednet.receive('PROTO_REBOOT')
                 if monitor then monitor.clear() end
-                os.reboot()
+                os.queueEvent('redionet:reboot')
+            end,
+            function ()
+                rednet.receive('PROTO_UPDATE')
+                local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
+                local tabid = shell.openTab('wget run ' .. install_url)
+                shell.switchTab(tabid)
+
+                local _, file_changes = os.pullEvent('redionet:update_complete')
+                rednet.send(SERVER_ID, file_changes, "PROTO_UPDATED")
+                
+                if file_changes then
+                    os.queueEvent('redionet:reload')
+                end
             end,
             --[[
                 Client Event -> Server Message 
@@ -145,8 +178,23 @@ end
 
 receiver.update_server_state(true) -- get initial server state before proceeding
 
+local function system_stop_event()
+    -- The only events that should allow the program to terminate
+    parallel.waitForAny(
+        function ()
+            os.pullEvent('redionet:reload')
+            local tabid = shell.openTab('client')
+            shell.exit()
+        end,
+        function ()
+            os.pullEvent('redionet:reboot')
+            os.reboot()
+        end
+    )
+end
 
 local client_functions = {
+    system_stop_event,
     client_loop,
     ui.ui_loop,
     net.http_search_loop
