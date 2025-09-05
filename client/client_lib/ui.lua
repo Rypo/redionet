@@ -13,7 +13,7 @@ local config = {}
 
 config.term_width, config.term_height = term.getSize()
 
-config.colors = {
+config.colors = { -- TODO: either semantically meaningful names (e.g. text, text_active, bg, bg_active) or remove
     black = colors.black,
     white = colors.white,
     gray = colors.gray,
@@ -78,9 +78,14 @@ M.state.sr_menu = {
         config.ui.menu_add_to_queue,
         config.ui.menu_cancel
     },
-    hl_idx = 3,
+    hl_idx = 3, -- add_to_queue default highlighted
 }
 
+local function set_colors(text, bg, term_redirect)
+    term_redirect = term_redirect or term
+    if text then term_redirect.setTextColor(text) end
+    if bg then term_redirect.setBackgroundColor(bg) end
+end
 
 local function draw_tabs()
     term.setCursorPos(1, 1)
@@ -89,11 +94,9 @@ local function draw_tabs()
 
     for i, tab_label in ipairs(config.tabs) do
         if M.state.active_tab == i then
-            term.setTextColor(config.colors.black)
-            term.setBackgroundColor(config.colors.white)
+            set_colors(config.colors.black, config.colors.white)
         else
-            term.setTextColor(config.colors.white)
-            term.setBackgroundColor(config.colors.gray)
+            set_colors(config.colors.white, config.colors.gray)
         end
         local x = math.floor((config.term_width / #config.tabs) * (i - 0.5)) - math.ceil(#tab_label / 2) + 1
         term.setCursorPos(x, 1)
@@ -169,11 +172,7 @@ local function draw_now_playing_tab()
         term.write(status_color == colors.red and '\120' or status_color == colors.green and '\16')
     end
 
-
-    term.setBackgroundColor(config.colors.gray) -- reset after box draw
-
-    -- term.setTextColor(btn_color)
-    term.setTextColor(config.colors.white) -- client play/stop always enabled
+    set_colors(config.colors.white, config.colors.gray) -- reset after box draw
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
 
     if config.client_mode_mute then
@@ -195,11 +194,9 @@ local function draw_now_playing_tab()
     M.state.loop_mode = CSTATE.server_state.loop_mode -- sync up with server state  
     btn_cfg = config.ui.loop_button
     if M.state.loop_mode ~= 0 then
-        term.setTextColor(config.colors.black)
-        term.setBackgroundColor(config.colors.white)
+        set_colors(config.colors.black, config.colors.white)
     else
-        term.setTextColor(config.colors.white)
-        term.setBackgroundColor(config.colors.gray)
+        set_colors(config.colors.white, config.colors.gray)
     end
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
     term.write(btn_cfg.labels[M.state.loop_mode + 1])
@@ -213,12 +210,10 @@ local function draw_now_playing_tab()
     end
     local percent_str = math.floor(100 * (CSTATE.volume / 3) + 0.5) .. "%"
     if handle_width > #percent_str + 2 then
-        term.setBackgroundColor(config.colors.white)
-        term.setTextColor(config.colors.black)
+        set_colors(config.colors.black, config.colors.white)
         term.setCursorPos(vol_cfg.x + handle_width - #percent_str - 1, vol_cfg.y)
     else
-        term.setBackgroundColor(config.colors.gray)
-        term.setTextColor(config.colors.white)
+        set_colors(config.colors.white, config.colors.gray)
         term.setCursorPos(vol_cfg.x + handle_width + 1, vol_cfg.y)
     end
     term.write(percent_str)
@@ -228,13 +223,19 @@ local function draw_now_playing_tab()
     local queue = CSTATE.server_state.queue
     if #queue > 0 then
         term.setBackgroundColor(config.colors.black)
-        -- TODO: treat like search result, only write visible 
+
+        local y = config.ui.queue.start_y - 1 -- -1 for cleaner +1s
         for i, song in ipairs(queue) do
+            if y+2 > config.term_height then break end -- only write visible 
+
+            y = y+1
             term.setTextColor(config.colors.white)
-            term.setCursorPos(2, config.ui.queue.start_y + (i - 1) * 2)
+            term.setCursorPos(2, y)
             term.write(song.name)
+
+            y = y+1
             term.setTextColor(config.colors.lightGray)
-            term.setCursorPos(2, config.ui.queue.start_y+1 + (i - 1) * 2)
+            term.setCursorPos(2, y)
             term.write(song.artist)
         end
     end
@@ -243,7 +244,8 @@ end
 
 local function search_result_subset()
     local idx_start = 0
-    local n_items = M.state.search_items_visible -- 6
+    local n_items = M.state.search_items_visible
+    -- local n_items = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
 
     if M.state.hl_idx then
         idx_start = math.floor((M.state.hl_idx-1) / n_items) * n_items
@@ -260,24 +262,13 @@ local function search_result_subset()
 end
 
 
-local function write_search_results(idx_start, n_display)
-    idx_start = idx_start or 0
-    n_display = n_display or M.state.search_items_visible -- 6
-    
-
-    -- if M.state.hl_idx then
-    --     idx_start = math.floor((M.state.hl_idx-1) / n_display) * n_display
-    -- end
-    -- local idx_end = idx_start+n_display -- don't want to cap at #search_results because need it to clear old. math.min(idx_start+n_display, #CSTATE.search_results)
-
-    -- local bg_color, song_color, artist_color = config.colors.black, config.colors.white, config.colors.lightGray
-
+local function write_search_results()
     local sr_cfg = config.ui.search_result
     local orig_term = term.current()
     local sr_window = window.create(term.current(), 1, sr_cfg.start_y, config.term_width, config.term_height-sr_cfg.start_y)
-    sr_window.setBackgroundColor(config.colors.black)
+
+    set_colors(config.colors.white, config.colors.black, sr_window)
     sr_window.clear()
-    sr_window.setTextColor(config.colors.white)
     -- term.redirect(sr_window)
 
     -- for i = 1+idx_start, idx_end, 1 do
@@ -294,17 +285,14 @@ local function write_search_results(idx_start, n_display)
         -- local y = sr_cfg.start_y + ((i - 1) % n_display) * sr_cfg.height
         -- local y = ((k - 1) % n_display) * sr_cfg.height
         local result = CSTATE.search_results[k]
-
         if k == M.state.hl_idx then -- invert colors
-            sr_window.setBackgroundColor(config.colors.white)
-            sr_window.setTextColor(config.colors.black)
+            set_colors(config.colors.black, config.colors.white, sr_window)
         else
-            sr_window.setBackgroundColor(config.colors.black)
-            sr_window.setTextColor(config.colors.white)
+            set_colors(config.colors.white, config.colors.black, sr_window)
         end
 
         -- sr_window.setCursorPos(2, y)
-        sr_window.setCursorPos(1, y)
+        sr_window.setCursorPos(2, y)
         sr_window.clearLine()
         sr_window.write(result.name)
         y = y + 1
@@ -312,7 +300,7 @@ local function write_search_results(idx_start, n_display)
         
         sr_window.setTextColor(config.colors.lightGray)
         -- sr_window.setCursorPos(2, y + 1)
-        sr_window.setCursorPos(1, y)
+        sr_window.setCursorPos(2, y)
         sr_window.clearLine()
 
         sr_window.write(result.artist)
@@ -330,9 +318,9 @@ local function draw_search_tab()
     -- Search bar
     local sbar = config.ui.search_bar
     paintutils.drawFilledBox(sbar.x, sbar.y, sbar.x + sbar.width - 1, sbar.y + sbar.height - 1, config.colors.lightGray)
-    term.setBackgroundColor(config.colors.lightGray)
+
+    set_colors(config.colors.black, config.colors.lightGray)
     term.setCursorPos(sbar.x + 1, sbar.y + 1)
-    term.setTextColor(config.colors.black)
     term.write(CSTATE.last_search_query or "Search...")
 
     -- Search results
@@ -355,16 +343,11 @@ local function draw_search_tab()
 end
 
 local function write_play_options()
-    local bgcol, txtcol = config.colors.gray, config.colors.white
-
     for i, item in ipairs(M.state.sr_menu.items) do
-        
         if i == M.state.sr_menu.hl_idx then
-            term.setBackgroundColor(txtcol) -- invert
-            term.setTextColor(bgcol)
+            set_colors(config.colors.black, config.colors.white)
         else
-            term.setBackgroundColor(bgcol)
-            term.setTextColor(txtcol)
+            set_colors(config.colors.white, config.colors.gray)
         end
         term.setCursorPos(item.x, item.y)
         term.clearLine() -- Write full length of term
@@ -410,13 +393,10 @@ end
 local function handle_search_input()
     local sbar = config.ui.search_bar
     paintutils.drawFilledBox(sbar.x, sbar.y, sbar.x + sbar.width - 1, sbar.y + sbar.height - 1, colors.white)
-    term.setBackgroundColor(config.colors.white)
 
+    set_colors(config.colors.black, config.colors.white)
     term.setCursorPos(sbar.x + 1, sbar.y + 1)
-
-    term.setTextColor(config.colors.black)
     term.setCursorBlink(true)
-    -- term.clearLine() --- This was cause of long skinny bar problem
 
     local input = read()
     term.setCursorBlink(false)
@@ -440,8 +420,7 @@ end
 
 local function delay_flash(menu_button)
     -- Click feedback - turn line white breifly on click
-    term.setBackgroundColor(colors.white)
-    term.setTextColor(colors.black)
+    set_colors(config.colors.black, config.colors.white)
     term.setCursorPos(2, menu_button.y)
     term.clearLine()
     term.write(menu_button.label)
