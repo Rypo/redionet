@@ -24,7 +24,7 @@ function M.update_server_state(blocking)
         CSTATE.server_state = sub_state
 
     else
-        os.queueEvent('sync_state')
+        os.queueEvent('redionet:sync_state')
     end
 end
 
@@ -33,14 +33,14 @@ end
 ---@param code string [NOW, NEXT, ADD]
 function M.send_server_queue(result, code)
     rednet.send(SERVER_ID, {code, result},  "PROTO_SERVER_QUEUE")
-    os.queueEvent('sync_state') -- server already automatically send state update response, might be redundant  
+    os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant  
 end
 
 ---@param code string [TOGGLE, SKIP, LOOP, STATE]
 ---@param loop_mode? number loop mode [0,1,2] for server playback (only applicable for code=LOOP)
 function M.send_server_player(code, loop_mode)
     rednet.send(SERVER_ID, {code, loop_mode},  "PROTO_SERVER_PLAYER")
-    os.queueEvent('sync_state') -- server already automatically send state update response, might be redundant 
+    os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant 
 end
 
 function M.toggle_play_mute()
@@ -57,7 +57,7 @@ function M.toggle_play_pause()
     else
         CSTATE.is_paused = true
         speaker.stop()
-        os.queueEvent("playback_stopped")
+        os.queueEvent("redionet:playback_stopped")
     end
 end
 
@@ -73,7 +73,7 @@ local function play_audio(buffer, state)
                 DBGMON('>>> SPEAKER EMPTY')
             end,
             function()
-                os.pullEvent("playback_stopped")
+                os.pullEvent("redionet:playback_stopped")
                 state.active_stream_id="HALT" -- mute doesn't use is_paused, need a way to breakout 
             end,
             function ()
@@ -110,7 +110,7 @@ function M.receive_loop()
             function ()
                 id, message = rednet.receive('PROTO_AUDIO_HALT')
                 speaker.stop()
-                os.queueEvent("playback_stopped")
+                os.queueEvent("redionet:playback_stopped")
                 -- rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT')
             end
         )

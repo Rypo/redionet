@@ -55,7 +55,7 @@ function STATE.broadcast(caller_info)
     }
 
     rednet.broadcast(sub_state, 'PROTO_SUB_STATE')
-    os.queueEvent('redraw_screen', "STATE.broadcast" .. ("(%s)"):format(caller_info or ""))
+    os.queueEvent('redionet:redraw_screen', "STATE.broadcast" .. ("(%s)"):format(caller_info or ""))
 end
 
 ---format state table as string 
@@ -128,7 +128,7 @@ local function server_loop()
                 -- always auto play on Queue update unless stopped
                 if STATE.data.status == -1 then
                     STATE.data.status = 1
-                    os.queueEvent('fetch_audio') -- TODO: monitor for interaction with Play Now
+                    os.queueEvent('redionet:fetch_audio') -- TODO: monitor for interaction with Play Now
                 end
                 if code then -- code shouldn't be able be nil, but it was? TODO
                     STATE.broadcast('PRO:S_queue: '..code) -- fetch audio already broadcasts state
@@ -179,7 +179,7 @@ local function server_event_loop()
         parallel.waitForAny(
             function()
                 while true do -- occurs frequently, prevent from interrupting other events
-                    local ev, origin = os.pullEvent('redraw_screen')
+                    local ev, origin = os.pullEvent('redionet:redraw_screen')
                     print('redraw: ' .. tostring(origin))
                     rednet.broadcast('redraw_screen', 'PROTO_UI')
                 end

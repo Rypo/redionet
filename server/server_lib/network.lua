@@ -25,7 +25,7 @@ function M.download_song(song_id)
     STATE.data.last_download_id = song_id
     STATE.data.is_loading = true
     http.request({ url = M.format_download_url(song_id), binary = true })
-    os.queueEvent("redraw_screen", "network.download_song")
+    os.queueEvent("redionet:redraw_screen", "network.download_song")
 end
 
 
@@ -53,7 +53,7 @@ function M.handle_http_download()
                     STATE.data.active_stream_id = STATE.data.last_download_id
                     STATE.data.response_handle = handle
 
-                    os.queueEvent("audio_chunk_ready")
+                    os.queueEvent("redionet:audio_chunk_ready")
                     
                 elseif event == "http_failure" then
                     local err = eventData[3]
@@ -63,11 +63,11 @@ function M.handle_http_download()
                     
                     STATE.data.active_stream_id = nil
                     if dl_attempt < M.config.max_dl_attempts then
-                        os.queueEvent("fetch_audio")
+                        os.queueEvent("redionet:fetch_audio")
                     else
                         err = "Download Retry Limit"
                         STATE.data.status = 0
-                        os.queueEvent("playback_stopped", STATE.data.error_status)
+                        os.queueEvent("redionet:playback_stopped", STATE.data.error_status)
                     end
 
                     chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, dl_attempt, M.config.max_dl_attempts), "ERROR")

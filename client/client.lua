@@ -126,12 +126,12 @@ local function client_loop()
             ]]
             function ()
                 rednet.receive('PROTO_UI')
-                os.queueEvent('redraw_screen')
+                os.queueEvent('redionet:redraw_screen')
             end,
             function ()
                 local id, sub_state = rednet.receive('PROTO_SUB_STATE')
                 CSTATE.server_state = sub_state or CSTATE.server_state -- avoid setting nil
-                os.queueEvent('redraw_screen')
+                os.queueEvent('redionet:redraw_screen')
             end,
             function ()
                 rednet.receive('PROTO_REBOOT')
@@ -155,7 +155,7 @@ local function client_loop()
                 Client Event -> Server Message 
             ]]
             function ()
-                os.pullEvent('sync_state')
+                os.pullEvent('redionet:sync_state')
                 rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
             end,
             --[[
@@ -167,7 +167,7 @@ local function client_loop()
                 local id = rednet.receive('PEER_SYNC')
                 if id ~= CLIENT_ID and speaker then
                     speaker.stop()
-                    os.queueEvent("playback_stopped")
+                    os.queueEvent("redionet:playback_stopped")
                 end
             end
         )

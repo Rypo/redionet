@@ -107,7 +107,7 @@ function M.chat_loop()
     while true do
         parallel.waitForAny(
             function()
-                local ev, message, msg_type = os.pullEvent('log_message')
+                local ev, message, msg_type = os.pullEvent('redionet:log_message')
                 M.log_message(message, msg_type)
             end,
             

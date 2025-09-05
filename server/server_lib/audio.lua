@@ -63,7 +63,7 @@ function Buffer.new(handle, song_id)
         self.total_write.bytes = self.total_write.bytes + #next -- decoded length
 
         -- chat.log_message(
-        os.queueEvent("log_message",
+        os.queueEvent("redionet:log_message",
             string.format('<%02d|%03d/%03d> [\25%0.1f\24%0.1f] KiB',
                 #self.buffer, self.total_read.chunks, self.total_write.chunks,
                 self.total_read.bytes / 1024, self.total_write.bytes / 1024),
@@ -168,7 +168,7 @@ local function transmit_audio(data_buffer)
                     table.insert(replies_time, timestamp_ms)
                     local play_duration = timestamp_ms - (last_chunktime[id] or timestamp_ms)
                 
-                    -- os.queueEvent("log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #replies, n_receivers), "DEBUG")
+                    -- os.queueEvent("redionet:log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #replies, n_receivers), "DEBUG")
                     chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #replies_id, n_receivers ), "DEBUG")
 
                     last_chunktime[id] = timestamp_ms
@@ -198,7 +198,7 @@ local function transmit_audio(data_buffer)
 
     if #replies_time > 1 then
         local desync_ms = (math.max(table.unpack(replies_time)) - math.min(table.unpack(replies_time)))
-        -- os.queueEvent("log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
+        -- os.queueEvent("redionet:log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
         chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #replies_time, #receivers), "INFO")
         if desync_ms > 100 then -- more than 100ms lag time, dig deeper
             local id_order,delay = {},{}
@@ -217,9 +217,9 @@ local function transmit_audio(data_buffer)
 
         STATE.data.active_stream_id=nil
         chat.log_message(STATE.data.error_status .. ": " .. err, "ERROR")
-        os.queueEvent("playback_stopped", STATE.data.error_status)
+        os.queueEvent("redionet:playback_stopped", STATE.data.error_status)
     else
-        os.queueEvent("request_next_chunk")
+        os.queueEvent("redionet:request_next_chunk")
     end
 end
 
@@ -228,8 +228,8 @@ local function process_audio_data(data_buffer)
     while STATE.data.active_stream_id == data_buffer.song_id and STATE.data.status==1 do
         transmit_audio(data_buffer)
         parallel.waitForAny(
-            function() os.pullEvent("request_next_chunk") end,
-            function() os.pullEvent("playback_stopped") end
+            function() os.pullEvent("redionet:request_next_chunk") end,
+            function() os.pullEvent("redionet:playback_stopped") end
         )
         if STATE.data.status<1 or STATE.data.active_stream_id==nil then break end
     end
@@ -284,12 +284,12 @@ function M.play_song(song_meta)
     
     STATE.data.status = 1      -- needs to be at end to overwrite stop_song()
 
-    os.queueEvent("fetch_audio")
+    os.queueEvent("redionet:fetch_audio")
 end
 
 function M.stop_song()
     rednet.broadcast("audio.stop_song", 'PROTO_AUDIO_HALT')
-    os.queueEvent("playback_stopped") -- pulled by process_audio_data
+    os.queueEvent("redionet:playback_stopped") -- pulled by process_audio_data
     STATE.data.active_stream_id = nil
     STATE.data.status = 0
 end
@@ -310,9 +310,9 @@ end
 
 function M.audio_loop()
     local event_filter = {
-        ["fetch_audio"] = true,
-        ["audio_chunk_ready"] = true,
-        ["playback_stopped"] = true,
+        ["redionet:fetch_audio"] = true,
+        ["redionet:audio_chunk_ready"] = true,
+        ["redionet:playback_stopped"] = true,
     }
     local dbuffer -- data buffer, need out of loop body to properly destroy in the event of early termination
     while true do
@@ -328,13 +328,13 @@ function M.audio_loop()
             local should_play     = STATE.data.status ~= 0 -- if it's -1 or +1, play as soon as data is available
             
             if not can_play then
-                event = "event_cancelled" -- skip the event handling below
-                os.queueEvent("redraw_screen", "audio.audio_loop(event_cancelled)")
+                event = "redionet:event_cancelled" -- skip the event handling below
+                os.queueEvent("redionet:redraw_screen", "audio.audio_loop(event_cancelled)")
             end
             
             STATE.broadcast("audio_loop - ".. event) -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
 
-            if event == "fetch_audio" then
+            if event == "redionet:fetch_audio" then
                 local has_data_stream    = (STATE.data.active_stream_id ~= nil)
                 local has_correct_stream = has_data_stream and (STATE.data.active_stream_id == STATE.data.active_song_meta.id)
                 
@@ -344,7 +344,7 @@ function M.audio_loop()
                     network.download_song(STATE.data.active_song_meta.id)
                 end
                 
-            elseif event == "audio_chunk_ready" then
+            elseif event == "redionet:audio_chunk_ready" then
                 
                 local handle = STATE.data.response_handle
                 if not handle then error('bad state: read handle is nil', 0) end -- appease the linter (state should be unreachable)
@@ -368,10 +368,10 @@ function M.audio_loop()
                     end
                     STATE.data.active_stream_id = nil -- (re)download on next play, regardless of if finished
                     
-                    os.queueEvent('fetch_audio') -- needed to auto play next song
+                    os.queueEvent('redionet:fetch_audio') -- needed to auto play next song
                     
                 end
-            elseif event == "playback_stopped" then
+            elseif event == "redionet:playback_stopped" then
                 STATE.data.active_stream_id = nil
                 STATE.data.is_loading = false
                 STATE.data.error_status = eventData[2] or false -- PLAYBACK_ERROR or false

@@ -56,7 +56,7 @@ function M.http_search_loop()
                     CSTATE.error_status = "SEARCH_ERROR"
                 end
                 
-                os.queueEvent("redraw_screen")
+                os.queueEvent("redionet:redraw_screen")
             end
         end
     end

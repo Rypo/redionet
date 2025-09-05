@@ -644,7 +644,7 @@ function M.ui_loop()
                 end,
 
                 function ()
-                    os.pullEvent("redraw_screen")
+                    os.pullEvent("redionet:redraw_screen")
                     M.redraw_screen()
                 end
             )
