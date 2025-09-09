@@ -123,6 +123,28 @@ function Buffer.new(handle, song_id)
     return self
 end
 
+local function lookup_receivers()
+    -- local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes a minimum of 2 seconds. But delay this seems to help with sync issues?
+    -- https://github.com/cc-tweaked/CC-Tweaked/blob/9e233a9/projects/core/src/main/resources/data/computercraft/lua/rom/apis/rednet.lua#L422
+
+    -- builtin rednet.lookup method does not prune inactive receivers. Waiting on a response from inactive clients causes audio stutter.  
+    local receivers = {}
+    local timer, tid = os.startTimer(2), nil
+    rednet.broadcast('status', 'PROTO_AUDIO_STATUS')
+
+    parallel.waitForAny(
+        function ()
+            while true do
+                local id, status = rednet.receive('PROTO_AUDIO_STATUS:REPLY')
+                table.insert(receivers, id)
+            end
+        end,
+        function () repeat _,tid = os.pullEvent('timer') until tid == timer end
+    )
+    os.cancelTimer(timer)
+    return receivers
+end
+
 local last_chunktime = {}
 
 --  broadcasts the decoded audio buffer data over PROTO_AUDIO
@@ -133,11 +155,9 @@ local function transmit_audio(data_buffer)
         song_id = data_buffer.song_id, -- add in local song_id for interrupts
         chunk_id = data_buffer.total_write.chunks
     }
+    local receivers = lookup_receivers()
 
     -- debug.debug()
-    local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes a minimum of 2 seconds. But delay this seems to help with sync issues?
-    -- https://github.com/cc-tweaked/CC-Tweaked/blob/9e233a9/projects/core/src/main/resources/data/computercraft/lua/rom/apis/rednet.lua#L422
-    
     if #receivers == 0 then
         chat.log_message('No visible client connections... Stopping', 'INFO')
         return M.stop_song()
@@ -148,8 +168,7 @@ local function transmit_audio(data_buffer)
 
     local timeout = AUDIO_CHUNK_DURATION + 0.2 -- 4 extra ticks / 200ms 
 
-    local replies_id = {}
-    local replies_time = {}
+    local reply = {ids = {}, times = {}}
 
     local num_resp, num_next = 0, 0
     local function play_task()
@@ -164,12 +183,12 @@ local function transmit_audio(data_buffer)
                     num_next = num_next + 1
                     local timestamp_ms = os.epoch("local")
 
-                    table.insert(replies_id, id)
-                    table.insert(replies_time, timestamp_ms)
+                    table.insert(reply.ids, id)
+                    table.insert(reply.times, timestamp_ms)
                     local play_duration = timestamp_ms - (last_chunktime[id] or timestamp_ms)
                 
-                    -- os.queueEvent("redionet:log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #replies, n_receivers), "DEBUG")
-                    chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #replies_id, n_receivers ), "DEBUG")
+                    -- os.queueEvent("redionet:log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #reply.ids, n_receivers), "DEBUG")
+                    chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #reply.ids, n_receivers ), "DEBUG")
 
                     last_chunktime[id] = timestamp_ms
                 
@@ -196,15 +215,15 @@ local function transmit_audio(data_buffer)
         return M.stop_song()
     end
 
-    if #replies_time > 1 then
-        local desync_ms = (math.max(table.unpack(replies_time)) - math.min(table.unpack(replies_time)))
-        -- os.queueEvent("redionet:log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #replies, #receivers), "INFO")
-        chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #replies_time, #receivers), "INFO")
+    if #reply.times > 1 then
+        local desync_ms = (math.max(table.unpack(reply.times)) - math.min(table.unpack(reply.times)))
+        -- os.queueEvent("redionet:log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #reply.ids, #receivers), "INFO")
+        chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #reply.times, #receivers), "INFO")
         if desync_ms > 100 then -- more than 100ms lag time, dig deeper
             local id_order,delay = {},{}
-            for i,id in ipairs(replies_id) do
+            for i,id in ipairs(reply.ids) do
                 id_order[i] = ("[%d] %d"):format(i, id)
-                delay[i] = ("%dms"):format((i<#replies_time and replies_time[i+1] - replies_time[i]) or 0)
+                delay[i] = ("%dms"):format((i<#reply.times and reply.times[i+1] - reply.times[i]) or 0)
             end
             textutils.tabulate(colors.white, id_order, colors.pink, delay)
         end

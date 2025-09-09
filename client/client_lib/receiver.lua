@@ -111,7 +111,12 @@ function M.receive_loop()
                 id, message = rednet.receive('PROTO_AUDIO_HALT')
                 speaker.stop()
                 os.queueEvent("redionet:playback_stopped")
-                -- rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT')
+            end,
+            function ()
+                while true do -- no interrupt
+                    id, message = rednet.receive('PROTO_AUDIO_STATUS')
+                    rednet.send(id, (not CSTATE.is_paused), 'PROTO_AUDIO_STATUS:REPLY')
+                end
             end
         )
     end
