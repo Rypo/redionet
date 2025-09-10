@@ -25,10 +25,14 @@ config.tabs = { " Now Playing ", " Search " }
 
 -- UI layout constants
 config.ui = {
+    -- Global Server play button
+    server_play_button = {x = config.term_width - 6, y = 1, width = 6, label_play = " START", label_stop = "  HALT", label_wait = "  \183\183\183 "},
     -- Now Playing Tab
-    play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop ", label_mute = " Mute " },
-    skip_button = { x = 9, y = 6, width = 6, label = " Skip " },
-    loop_button = { x = 16, y = 6, width = 11, labels = { " Loop Off ", " Loop List ", " Loop Song " } },
+    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop ", label_mute = " Mute " },
+    play_button = { x = 2, y = 6, width = 6, label_play = " Join ", label_stop = " Quit ", label_mute = " Mute " },
+    skip_button = { x = 10, y = 6, width = 6, label = " Skip " }, -- +1 extra gap 
+    -- loop_button = { x = 16, y = 6, width = 11, labels = { " Loop Off ", " Loop List ", " Loop Song " } },
+    loop_button = { x = 17, y = 6, width = 10, labels = { " Loop Off ", " Loop All ", " Loop One " } },
     volume_slider = { x = 2, y = 8, width = 25 },
     queue = { start_y = 10, height = 2 },
 
@@ -42,6 +46,14 @@ config.ui = {
     menu_add_to_queue = { x = 2, y = 10, label = "Add to queue" },
     menu_cancel = { x = 2, y = 13, label = "Cancel" },
 }
+-- Pocket overrides
+config.pocket_ui = {
+    server_play_button = {x = config.term_width - 2, y = 1, width = 2, label_play = " \16", label_stop = " \215", label_wait = " \183"},
+}
+if pocket then
+    config.ui.server_play_button = config.pocket_ui.server_play_button
+end
+
 
 config.client_mode_mute = false
 --[[ 
@@ -67,7 +79,7 @@ M.state.waiting_for_input = false
 M.state.in_search_result_view = false
 M.state.clicked_result_index = nil
 M.state.loop_mode = 0
-
+M.state.ui_enabled = true -- alias for (not CSTATE.is_paused) currently
 -- Local only
 M.state.search_items_visible = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
 M.state.hl_idx = nil
@@ -87,7 +99,7 @@ local function set_colors(text, bg, term_redirect)
     if bg then term_redirect.setBackgroundColor(bg) end
 end
 
-local function draw_tabs()
+local function draw_tabs_bar()
     term.setCursorPos(1, 1)
     term.setBackgroundColor(config.colors.gray)
     term.clearLine()
@@ -98,10 +110,31 @@ local function draw_tabs()
         else
             set_colors(config.colors.white, config.colors.gray)
         end
-        local x = math.floor((config.term_width / #config.tabs) * (i - 0.5)) - math.ceil(#tab_label / 2) + 1
+        -- local x = math.floor((config.term_width / #config.tabs) * (i - 0.5)) - math.ceil(#tab_label / 2) + 1
+        local x = math.floor(((config.term_width-config.ui.server_play_button.width) / #config.tabs) * (i - 0.5)) - math.ceil(#tab_label / 2) + 1
         term.setCursorPos(x, 1)
         term.write(tab_label)
+        
     end
+
+
+    -- Global Server playing marker tab
+    local btn_cfg = config.ui.server_play_button
+    
+    -- local status_color = (CSTATE.server_state.status == -1 and colors.orange) or (CSTATE.server_state.status == 1 and colors.red) or (CSTATE.server_state.status == 0 and colors.green)
+    local status_color,status_label
+    if CSTATE.server_state.status == -1 then
+        status_color,status_label = colors.lightGray, btn_cfg.label_wait
+    elseif CSTATE.server_state.status == 1 then
+        status_color,status_label = colors.red, btn_cfg.label_stop
+    elseif CSTATE.server_state.status == 0 then
+         status_color,status_label = colors.green, btn_cfg.label_play
+    end
+    paintutils.drawBox(btn_cfg.x, btn_cfg.y, btn_cfg.x+btn_cfg.width, btn_cfg.y, CSTATE.is_paused and colors.lightGray or status_color)
+    
+    term.setTextColor(config.colors.white)
+    term.setCursorPos(btn_cfg.x, btn_cfg.y)
+    term.write(status_label)
 end
 
 local function draw_now_playing_tab()
@@ -158,20 +191,9 @@ local function draw_now_playing_tab()
 
     -- Buttons
     local btn_cfg
-
+    
     -- Play/Stop
     btn_cfg = config.ui.play_button
-
-    -- Server playing marker tab
-    local status_color = (CSTATE.server_state.status == -1 and colors.orange) or (CSTATE.server_state.status == 1 and colors.red) or (CSTATE.server_state.status == 0 and colors.green)
-    paintutils.drawBox(btn_cfg.x-1, btn_cfg.y, btn_cfg.x-1, btn_cfg.y, status_color)
-    
-    if CSTATE.server_state.status > -1 then
-        term.setTextColor(config.colors.white)
-        term.setCursorPos(btn_cfg.x-1, btn_cfg.y)
-        term.write(status_color == colors.red and '\120' or status_color == colors.green and '\16')
-    end
-
     set_colors(config.colors.white, config.colors.gray) -- reset after box draw
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
 
@@ -182,8 +204,8 @@ local function draw_now_playing_tab()
     end
 
     -- Skip
-    local skip_enabled = CSTATE.server_state.status > -1 --active_song_meta or #queue > 0
-    local btn_color = skip_enabled and config.colors.white or config.colors.lightGray
+    local skip_enabled = CSTATE.server_state.status > -1
+    local btn_color = (M.state.ui_enabled and skip_enabled and config.colors.white) or config.colors.lightGray
     
     btn_cfg = config.ui.skip_button
     term.setTextColor(btn_color) -- skip button will depend on if there are song available to play
@@ -193,10 +215,15 @@ local function draw_now_playing_tab()
     -- Loop
     M.state.loop_mode = CSTATE.server_state.loop_mode -- sync up with server state  
     btn_cfg = config.ui.loop_button
-    if M.state.loop_mode ~= 0 then
-        set_colors(config.colors.black, config.colors.white)
+
+    if M.state.ui_enabled then
+        if M.state.loop_mode ~= 0 then
+            set_colors(config.colors.black, config.colors.white)
+        else
+            set_colors(config.colors.white, config.colors.gray)
+        end
     else
-        set_colors(config.colors.white, config.colors.gray)
+        set_colors(colors.lightGray, colors.gray)
     end
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
     term.write(btn_cfg.labels[M.state.loop_mode + 1])
@@ -375,11 +402,13 @@ end
 function M.redraw_screen()
     if M.state.waiting_for_input then return end
 
+    M.state.ui_enabled = (not CSTATE.is_paused)
+
     term.setCursorBlink(false)
     term.setBackgroundColor(config.colors.black)
     term.clear()
 
-    draw_tabs()
+    draw_tabs_bar()
 
     if M.state.in_search_result_view then
         draw_search_result_menu()
@@ -474,34 +503,36 @@ local function handle_click(button, x, y)
 
     -- Tab clicks
     if y == 1 then
-        M.state.active_tab = x < config.term_width / 2 and 1 or 2
+        if x < config.ui.server_play_button.x then
+            local tab_area = config.term_width-config.ui.server_play_button.width
+            -- M.state.active_tab = x < config.term_width / 2 and 1 or 2
+            M.state.active_tab = x < tab_area / 2 and 1 or 2 -- NOTE: needs rework if ever #tabs > 2
+        else -- click global server play status tab
+            if CSTATE.server_state.status ~= -1 and M.state.ui_enabled then
+                receiver.send_server_player("TOGGLE") -- global play/pause
+            end
+        end
         M.redraw_screen()
         return
     end
 
     if M.state.active_tab == 1 then -- Now Playing Tab
-        
-        if x == 1 and y == config.ui.play_button.y then -- click server play status tab
-            receiver.send_server_player("TOGGLE") -- global play/pause
-
-        elseif y == config.ui.play_button.y then
-            local buttons_enabled = CSTATE.server_state.status > -1
-            
+        if y == config.ui.play_button.y then
             if is_in_box(x, y, config.ui.play_button) then
-                if config.client_mode_mute then
-                    receiver.toggle_play_mute()
-                else
-                    receiver.toggle_play_pause() -- local play/pause
+                receiver.toggle_play_local(config.client_mode_mute) -- local play/pause
+
+            elseif M.state.ui_enabled then
+                local skip_enabled = CSTATE.server_state.status > -1
+
+                if is_in_box(x, y, config.ui.skip_button) and skip_enabled then
+                    receiver.send_server_player("SKIP")
+            
+                elseif is_in_box(x, y, config.ui.loop_button) then
+                    M.state.loop_mode = (M.state.loop_mode + 1) % 3
+                    receiver.send_server_player("LOOP", M.state.loop_mode)
                 end
-            
-            elseif is_in_box(x, y, config.ui.skip_button) and buttons_enabled then
-                receiver.send_server_player("SKIP")
-            
-            elseif is_in_box(x, y, config.ui.loop_button) then
-                M.state.loop_mode = (M.state.loop_mode + 1) % 3
-                receiver.send_server_player("LOOP", M.state.loop_mode)
             end
-        elseif y == config.ui.volume_slider.y then
+        elseif y == config.ui.volume_slider.y then -- volume slider always active since no effect on other clients 
             if is_in_box(x, y, config.ui.volume_slider) then
                 CSTATE.volume = (x - config.ui.volume_slider.x) / (config.ui.volume_slider.width - 1) * 3
             end

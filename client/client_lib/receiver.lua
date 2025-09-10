@@ -32,6 +32,7 @@ end
 ---@param result table metadata for song or playlist
 ---@param code string [NOW, NEXT, ADD]
 function M.send_server_queue(result, code)
+    CSTATE.is_paused = false -- queue manipulation = join session if not already
     rednet.send(SERVER_ID, {code, result},  "PROTO_SERVER_QUEUE")
     os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant  
 end
@@ -43,12 +44,12 @@ function M.send_server_player(code, loop_mode)
     os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant 
 end
 
-function M.toggle_play_mute()
-    CSTATE.is_paused = false
-    CSTATE.is_muted = not CSTATE.is_muted
-end
-
-function M.toggle_play_pause()
+function M.toggle_play_local(mute_mode)
+    if mute_mode then
+        CSTATE.is_paused = false
+        CSTATE.is_muted = not CSTATE.is_muted
+        return
+    end
 
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         CSTATE.is_paused = false
