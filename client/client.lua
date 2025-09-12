@@ -134,21 +134,27 @@ local function client_loop()
                 os.queueEvent('redionet:redraw_screen')
             end,
             function ()
-                rednet.receive('PROTO_REBOOT')
-                if monitor then monitor.clear() end
-                os.queueEvent('redionet:reboot')
-            end,
-            function ()
-                rednet.receive('PROTO_UPDATE')
-                local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
-                local tabid = shell.openTab('wget run ' .. install_url)
-                shell.switchTab(tabid)
-
-                local _, file_changes = os.pullEvent('redionet:update_complete')
-                rednet.send(SERVER_ID, file_changes, "PROTO_UPDATED")
+                local id, command = rednet.receive('PROTO_COMMAND')
                 
-                if file_changes then
+                if command == 'reboot' then
+                    if monitor then monitor.clear() end
+                    os.queueEvent('redionet:reboot')
+                
+                elseif command == 'reload' then
                     os.queueEvent('redionet:reload')
+                
+                elseif command == 'update' then
+                    
+                    local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
+                    local tabid = shell.openTab('wget run ' .. install_url)
+                    shell.switchTab(tabid)
+
+                    local _, file_changes = os.pullEvent('redionet:update_complete') -- Queued by install script
+                    rednet.send(SERVER_ID, file_changes, "PROTO_UPDATED")
+                    
+                    if file_changes then
+                        os.queueEvent('redionet:reload')
+                    end
                 end
             end,
             --[[

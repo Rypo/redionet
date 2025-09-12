@@ -104,11 +104,18 @@ function M.log_message(message, msg_type)
 end
 
 function M.chat_loop()
+    local commands_list = {'reboot', 'reload', 'update'}
+
+    local cmds_set = {}
+    for _, cmd in ipairs(commands_list) do cmds_set[cmd] = true end
+
     while true do
         parallel.waitForAny(
             function()
-                local ev, message, msg_type = os.pullEvent('redionet:log_message')
-                M.log_message(message, msg_type)
+                while true do -- no interrupt
+                    local ev, message, msg_type = os.pullEvent('redionet:log_message')
+                    M.log_message(message, msg_type)
+                end
             end,
             
             function ()
@@ -124,18 +131,16 @@ function M.chat_loop()
                 -- fires if a real (Advanced Peripherals) chatBox is attached or imitated with PROTO_CHATBOX
                 local ev, user, message, uuid, ishidden = os.pullEvent("chat")
                 message = string.lower(message)
-
-                if message == 'reboot' then
-                    M.log_message("reboot issued", "INFO")
-                    rednet.broadcast('reboot', 'PROTO_REBOOT')
-                    os.sleep(0.5)
-                    os.queueEvent('redionet:reboot')
-                -- TODO: elseif message == 'reload' then
-                elseif message == 'update' then
-                    M.log_message("update issued", "INFO")
-                    rednet.broadcast('update', 'PROTO_UPDATE')
-                    os.sleep(0.5)
-                    os.queueEvent('redionet:update')
+                local cmd = message:match("rn (%l+)") -- match format: "rn lowercaseletters"
+                
+                -- probably too rigid long term, but fine for now while few commands
+                if cmds_set[cmd] then
+                    M.log_message(("Command received: %s"):format(cmd), "INFO")
+                    rednet.broadcast(cmd, 'PROTO_COMMAND')
+                    
+                    os.queueEvent(('redionet:%s'):format(cmd))
+                elseif cmd then
+                    M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(commands_list, ', ')), "INFO")
                 end
             end
         )
