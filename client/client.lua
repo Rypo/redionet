@@ -9,6 +9,30 @@ if not rednet.isOpen() then error("Failed to establish rednet connection. Attach
 CLIENT_ID = os.getComputerID()
 HOST_NAME = 'client_'..CLIENT_ID
 
+local ui = require("client_lib.ui")
+local receiver = require("client_lib.receiver")
+local net = require('client_lib.net')
+
+
+--[[ Global Client State]]
+CSTATE = {
+    last_search_query = nil,    -- set in `net`, used in `net` and `ui`  
+    search_results = nil,       -- list of at most 21 song_meta tables
+    is_paused = false,          -- if true, client stops processing music data transmissions
+    volume = 1.5,               -- value between 0 and 3
+    is_muted = false,
+    error_status = false,       -- SEARCH_ERROR, false
+    server_state = {
+        active_song_meta = nil,
+        queue = {},
+        is_loading = false,
+        loop_mode = 0,
+        status = -1,
+        error_status = false,
+    }
+}
+
+
 local monitor = peripheral.find('monitor')
 if monitor then monitor.setTextScale(0.5) end
 
@@ -28,30 +52,11 @@ function DBGMON(message)
     term.redirect(bterm)
 end
 
-local function loading_animation(x,y)
-    -- TODO: move to ui
-    local _x,_y = term.getCursorPos()
-    x,y = x or _x, y or _y
-    local function animation()
-        local p_tl, p_tr, p_br, p_bl = 129, 130, 136, 132 -- points
-        local l_t,  l_r,  l_b,  l_l  = 131, 138, 140, 133 -- lines
-        local c_tl, c_tr, c_br, c_bl = 135, 139, 142, 141 -- corners
-        local sym_loop = { l_t, c_tr, l_r, c_br, l_b, c_bl, l_l, c_tl, l_t, p_tr, p_br, p_bl, p_tl, }
-        while true do
-            for _, c in ipairs(sym_loop) do
-                term.setCursorPos(x,y)
-                term.write(string.char(c))
-                os.sleep(0.15)
-            end
-        end
-    end
-    return animation
-end
 
 local function wait_server_connection()
     write('Waiting for server connection... ')
     local server_id
-    parallel.waitForAny(loading_animation(), function ()
+    parallel.waitForAny(ui.loading_animation(), function ()
         local id, response
         repeat
             server_id =  rednet.lookup('PROTO_SERVER')
@@ -89,29 +94,6 @@ end
 local has_speaker = check_speaker()
 SERVER_ID = wait_server_connection()
 
-local ui = require("client_lib.ui")
-local receiver = require("client_lib.receiver")
-local net = require('client_lib.net')
-
-
-
---[[ Global Client State]]
-CSTATE = {
-    last_search_query = nil,    -- set in `net`, used in `net` and `ui`  
-    search_results = nil,       -- list of at most 21 song_meta tables
-    is_paused = false,          -- if true, client stops processing music data transmissions
-    volume = 1.5,               -- value between 0 and 3
-    is_muted = false,
-    error_status = false,       -- SEARCH_ERROR, false
-    server_state = {
-        active_song_meta = nil,
-        queue = {},
-        is_loading = false,
-        loop_mode = 0,
-        status = -1,
-        error_status = false,
-    }
-}
 
 
 

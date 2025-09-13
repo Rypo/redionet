@@ -112,6 +112,25 @@ M.state.sr_menu = {
     hl_idx = 3, -- add_to_queue default highlighted
 }
 
+function M.loading_animation(x,y)
+    local _x,_y = term.getCursorPos()
+    x,y = x or _x, y or _y
+    local function animation()
+        local p_tl, p_tr, p_br, p_bl = 129, 130, 136, 132 -- points
+        local l_t,  l_r,  l_b,  l_l  = 131, 138, 140, 133 -- lines
+        local c_tl, c_tr, c_br, c_bl = 135, 139, 142, 141 -- corners
+        local sym_loop = { l_t, c_tr, l_r, c_br, l_b, c_bl, l_l, c_tl, l_t, p_tr, p_br, p_bl, p_tl, }
+        while true do
+            for _, c in ipairs(sym_loop) do
+                term.setCursorPos(x,y)
+                term.write(string.char(c))
+                os.sleep(0.15)
+            end
+        end
+    end
+    return animation
+end
+
 local function set_colors(text, bg, term_redirect)
     term_redirect = term_redirect or term
     if text then term_redirect.setTextColor(text) end
