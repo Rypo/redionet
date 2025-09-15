@@ -70,7 +70,8 @@ function M.handle_http_download()
                         os.queueEvent("redionet:playback_stopped", STATE.data.error_status)
                     end
 
-                    chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, dl_attempt, M.config.max_dl_attempts), "ERROR")
+                    local log_lvl = (dl_attempt == M.config.max_dl_attempts and "ERROR" or "WARN")
+                    chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, dl_attempt, M.config.max_dl_attempts), log_lvl)
                     
                     if dl_attempt == M.config.max_dl_attempts then
                         dl_attempt = 0 -- allow to go another round of max_attempts if queue up identical song or play->stop->play

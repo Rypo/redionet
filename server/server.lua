@@ -180,7 +180,7 @@ local function server_event_loop()
             function()
                 while true do -- occurs frequently, prevent from interrupting other events
                     local ev, origin = os.pullEvent('redionet:redraw_screen')
-                    print('redraw: ' .. tostring(origin))
+                    chat.log_message(('redraw: %s'):format(origin), 'DEBUG')
                     rednet.broadcast('redraw_screen', 'PROTO_UI')
                 end
             end,

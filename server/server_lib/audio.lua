@@ -67,7 +67,7 @@ function Buffer.new(handle, song_id)
             string.format('<%02d|%03d/%03d> [\25%0.1f\24%0.1f] KiB',
                 #self.buffer, self.total_read.chunks, self.total_write.chunks,
                 self.total_read.bytes / 1024, self.total_write.bytes / 1024),
-            "INFO")
+            "DEBUG")
 
         
         return next
@@ -159,7 +159,7 @@ local function transmit_audio(data_buffer)
 
     -- debug.debug()
     if #receivers == 0 then
-        chat.log_message('No visible client connections... Stopping', 'INFO')
+        chat.log_message('No visible client connections... Stopping', 'WARN')
         return M.stop_song()
     end
     
@@ -177,7 +177,7 @@ local function transmit_audio(data_buffer)
         while num_resp < n_receivers do -- weak check. Doesn't care who replied, only number received
             local id,msg = rednet.receive("PROTO_AUDIO_NEXT", timeout)
             if id then
-                num_resp = num_resp + 1
+                num_resp = num_resp + 1 -- count all valid responses, stopped or next
 
                 if msg == "request_next_chunk" then
                     num_next = num_next + 1
@@ -191,8 +191,6 @@ local function transmit_audio(data_buffer)
                     chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #reply.ids, n_receivers ), "DEBUG")
 
                     last_chunktime[id] = timestamp_ms
-                
-                --elseif msg==... do not use message==playback_stopped to decrement n_receivers. Causes unexpected behavior. 
                 end
 
             else
@@ -211,14 +209,14 @@ local function transmit_audio(data_buffer)
     -- alternatively, could do in parallel with lookup, which we know will take a fixed 2s
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
     if num_next == 0 then
-        chat.log_message('No remaining listeners... Stopping', 'INFO')
+        chat.log_message('No remaining listeners... Stopping', 'WARN')
         return M.stop_song()
     end
 
     if #reply.times > 1 then
         local desync_ms = (math.max(table.unpack(reply.times)) - math.min(table.unpack(reply.times)))
-        -- os.queueEvent("redionet:log_message", string.format('client desync: %dms | n=%d/%d', desync_ms, #reply.ids, #receivers), "INFO")
-        chat.log_message(string.format('client desync: %dms | n=%d/%d', desync_ms, #reply.times, #receivers), "INFO")
+        -- os.queueEvent("redionet:log_message", string.format('max client desync: %dms | n=%d/%d', desync_ms, #reply.ids, #receivers), "INFO")
+        chat.log_message(string.format('max client desync: %dms | n=%d/%d', desync_ms, #reply.times, #receivers), "INFO")
         if desync_ms > 100 then -- more than 100ms lag time, dig deeper
             local id_order,delay = {},{}
             for i,id in ipairs(reply.ids) do
@@ -235,7 +233,7 @@ local function transmit_audio(data_buffer)
         STATE.data.error_status = "PLAYBACK_ERROR" -- redundant, now set in playback_stopped
 
         STATE.data.active_stream_id=nil
-        chat.log_message(STATE.data.error_status .. ": " .. err, "ERROR")
+        chat.log_message(("%s: %s"):format(STATE.data.error_status, err), "ERROR")
         os.queueEvent("redionet:playback_stopped", STATE.data.error_status)
     else
         os.queueEvent("redionet:request_next_chunk")

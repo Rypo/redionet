@@ -12,8 +12,30 @@ local function format_paren(paren_text, paren_style, paren_color)
     paren_color = paren_color or "&f"
     paren_style = paren_style or "[]"
     return paren_color..paren_style:sub(1,1)..paren_text..paren_color..paren_style:sub(2,2)
-    
 end
+
+-- https://www.digminecraft.com/lists/color_list_pc.php
+-- https://tweaked.cc/module/colors.html
+local motd_to_cct = {
+    ['&4'] = colors.red,        -- dark_red
+    ['&c'] = colors.pink,       -- red
+    ['&6'] = colors.orange,     -- gold
+    ['&e'] = colors.yellow,     -- yellow
+    ['&2'] = colors.green,      -- dark_green
+    ['&a'] = colors.lime,       -- green
+    ['&b'] = colors.lightBlue,  -- aqua (1/2)
+    ['&3'] = colors.cyan,       -- dark_aqua
+    ['&1'] = colors.blue,       -- dark_blue
+    ['&9'] = colors.lightBlue,  -- blue (2/2)
+    ['&d'] = colors.magenta,    -- light_purple
+    ['&5'] = colors.purple,     -- dark_purple,
+    ['&f'] = colors.white,      -- white
+    ['&7'] = colors.lightGray,  -- gray
+    ['&8'] = colors.gray,       -- dark_gray
+    ['&0'] = colors.black,      -- black,
+    -- unused: colors.brown
+}
+
 --- Crudely attempt to convert MOTD color codes to term colors and write to console
 --- @param message_string string text containing MoTD color formats
 local function motd_to_termcolor(message_string)
@@ -21,9 +43,7 @@ local function motd_to_termcolor(message_string)
     message_string = message_string:gsub("&[klmno]",""):gsub("&[r]","&f") -- remove format codes -- reset -> white
 
     for c,text in string.gmatch(message_string, "(&%x)([^&]+)") do
-        -- motd white = hex_f, cc white = hex_0, invert scale for very rough translation
-        local invcol = ("%x"):format(15-tonumber("0x"..c:sub(2,2)))
-        term.setTextColor(colors.fromBlit(invcol))
+        term.setTextColor(motd_to_cct[c] or colors.brown) -- brown to notice parse failure
         write(text) -- global write() handles word wrapping automatically, term.write does not -- https://tweaked.cc/module/_G.html#v:write , /lua/bios.lua#L58
     end
     term.setTextColor(initial_color)
@@ -32,7 +52,7 @@ end
 
 
 -- --[[ // begin filler code  ]]
-_MOCK_CHAT_BOX = {
+local _MOCK_CHAT_BOX = {
     sendToastToPlayer =
     function (message, title, username, paren_text, paren_style, paren_color)
         local paren_label = format_paren(paren_text, paren_style, paren_color)
@@ -48,18 +68,17 @@ _MOCK_CHAT_BOX = {
     end
 }
 
-_MOCK_PLAYER_DETECTOR = {getOnlinePlayers = function() return {'Player1',} end}
+local _MOCK_PLAYER_DETECTOR = {getOnlinePlayers = function() return {'Player1',} end}
 
 -- --[[  end filler code // ]]
 
 
 local chatBox = peripheral.find("chatBox") or _MOCK_CHAT_BOX
-local playerDetector = peripheral.find("playerDetector") --or _MOCK_PLAYER_DETECTOR
-
-
-local msg_colors = {DEBUG = "&8", ERROR = "&4&l", INFO = "&f", STATE="&2"} -- dark_gray, dark_red-bold, white, dark_green
+local playerDetector = peripheral.find("playerDetector")
 -- https://docs.advanced-peripherals.de/latest/peripherals/chat_box/
--- https://www.digminecraft.com/lists/color_list_pc.php
+-- https://docs.advanced-peripherals.de/latest/peripherals/player_detector/
+
+local msg_colors = {DEBUG = "&8", INFO = "&f", WARN="&6&n", ERROR = "&4&l"} -- dark_gray, white, gold-underline, dark_red-bold,
 
 
 local M = {}
@@ -82,24 +101,25 @@ end
 
 --- Write text in the chat or debugging file
 ---@param message string|table contents to log
----@param msg_type string? One of DEBUG, ERROR, INFO, STATE. Defaults to DEBUG
-function M.log_message(message, msg_type)
-    msg_type = msg_type or "DEBUG"
+---@param level string? One of DEBUG, INFO, WARN, ERROR. Defaults to DEBUG
+function M.log_message(message, level)
+    level = level or "DEBUG"
+    local msg_col = msg_colors[level] or "&7" -- defaults to (light)gray
+
     if type(message) == "table" then
         message = STATE.to_string(message)
     end
     
-    if msg_type == "ERROR" then
-        local log_msg = string.format("[%s] (%s) %s", msg_type, os.date("%Y-%m-%d %H:%M:%S"), message .. "\n")
+    if level == "ERROR" then
+        -- write to logfile
+        local log_msg = string.format("[%s] (%s) %s", level, os.date("%Y-%m-%d %H:%M:%S"), message .. "\n")
         io.open('.logs/server.log', 'a'):write(log_msg):close()
-    end
-    
-    local msg_col = msg_colors[msg_type] or "&0" -- defaults to black
-    
-    if msg_type == "ERROR" or periphemu then -- don't _actually_ send chat messages unless it's an error
-        chatBox.sendMessage(message, msg_col..msg_type, "[]", "&d")
+
+        -- write in chat
+        chatBox.sendMessage(message, msg_col..level, "[]", msg_col)
     else
-        motd_to_termcolor(format_paren(msg_col..msg_type, "[]", msg_col).." "..message)
+        -- write in console if < error
+        motd_to_termcolor(("%s %s"):format(format_paren(msg_col..level, "[]", msg_col), message))
     end
 end
 
@@ -113,8 +133,8 @@ function M.chat_loop()
         parallel.waitForAny(
             function()
                 while true do -- no interrupt
-                    local ev, message, msg_type = os.pullEvent('redionet:log_message')
-                    M.log_message(message, msg_type)
+                    local ev, message, level = os.pullEvent('redionet:log_message')
+                    M.log_message(message, level)
                 end
             end,
             
@@ -140,7 +160,7 @@ function M.chat_loop()
                     
                     os.queueEvent(('redionet:%s'):format(cmd))
                 elseif cmd then
-                    M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(commands_list, ', ')), "INFO")
+                    M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(commands_list, ', ')), "ERROR")
                 end
             end
         )
