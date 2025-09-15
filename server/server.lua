@@ -77,10 +77,11 @@ end
 --[[ Server Loops ]]
 
 local function server_loop()
-    print('[PROTO_SERVER] Server ID: ' .. os.getComputerID())
+    term.setTextColor(colors.white)
+    print(('[READY] Server ID: %d'):format(os.getComputerID()))
     local initial_clients = { rednet.lookup('PROTO_AUDIO') }
     if #initial_clients > 0 then
-        print('Pending connection clients IDs:', table.unpack(initial_clients))
+        print('Known client IDs:', table.unpack(initial_clients))
     end
 
     local id, message

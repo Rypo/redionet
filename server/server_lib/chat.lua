@@ -78,12 +78,15 @@ local playerDetector = peripheral.find("playerDetector")
 -- https://docs.advanced-peripherals.de/latest/peripherals/chat_box/
 -- https://docs.advanced-peripherals.de/latest/peripherals/player_detector/
 
-local msg_colors = {DEBUG = "&8", INFO = "&f", WARN="&6&n", ERROR = "&4&l"} -- dark_gray, white, gold-underline, dark_red-bold,
-
+local loglvl = {
+    color = {DEBUG = "&8", INFO = "&f", WARN="&6&n", ERROR = "&4&l"}, -- dark_gray, white, gold-underline, dark_red-bold,
+    value = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
+}
 
 local M = {}
 
-
+settings.load()
+M.LOG_LEVEL = settings.get('redionet.log_level', 3)
 
 function M.announce_song(artist, song_title)
     -- Song notification in chat
@@ -104,8 +107,13 @@ end
 ---@param level string? One of DEBUG, INFO, WARN, ERROR. Defaults to DEBUG
 function M.log_message(message, level)
     level = level or "DEBUG"
-    local msg_col = msg_colors[level] or "&7" -- defaults to (light)gray
 
+    if loglvl.value[level] < M.LOG_LEVEL then
+        return -- no op when severity lower than setting
+    end
+
+    local msg_col = loglvl.color[level] or "&7" -- defaults to (light)gray
+    
     if type(message) == "table" then
         message = STATE.to_string(message)
     end

@@ -39,6 +39,11 @@ local function load_settings(verbose)
         description = "Whether to autorun on computer startup",
         type = "boolean",
     })
+    settings.define("redionet.log_level", {
+        description = "Minimum severity to show in server console. 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR. (default=3)",
+        default = 3,
+        type = "number",
+    })
     -- *very* important to load before calling settings.save
     -- save overwrites the file, deleting anything not defined. 
     settings.load()
