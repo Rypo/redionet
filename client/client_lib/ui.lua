@@ -63,7 +63,7 @@ config.ui = {
     menu_play_now = { x = 2, y = 6, label = "Play now" },
     menu_play_next = { x = 2, y = 8, label = "Play next" },
     menu_add_to_queue = { x = 2, y = 10, label = "Add to queue" },
-    menu_cancel = { x = 2, y = 13, label = "Cancel" },
+    menu_cancel = { x = 2, y = config.term_height, label = "Cancel" },
 }
 -- Pocket overrides
 config.pocket_ui = {
@@ -97,11 +97,14 @@ M.state.active_tab = 1
 M.state.waiting_for_input = false
 M.state.in_search_result_view = false
 M.state.clicked_result_index = nil
-M.state.loop_mode = 0
+M.state.loop_mode = 0 -- Local only
 M.state.ui_enabled = true -- alias for (not CSTATE.is_paused) currently
--- Local only
-M.state.search_items_visible = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
-M.state.hl_idx = nil
+
+-- when opened in a tab, term_height-=1. Updating breifly opens+closes a new tab, throwing off the calcuation. 
+-- Clamping at 3 fixes this, but then intentionally running client in new tab will show a half result. TODO: dynamic term h/w
+M.state.search_items_visible = math.max(3, math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height))
+
+M.state.hl_idx = nil -- highlight index in search results
 M.state.sr_menu = {
     items = {
         config.ui.menu_play_now,
