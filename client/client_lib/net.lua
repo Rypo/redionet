@@ -23,13 +23,42 @@ function M.search(query)
     http.request(M.format_search_url(query))
 end
 
+local function parse_time(artist_line)
+    -- local s_i,s_j = artist_line:find('\32\183\32', 1, true) -- matching string literal " · " can fail
+    local s_i,s_j = artist_line:find("%s%G+%s") -- >=1 not printable/space, surrounded by spaces
+
+    -- keep 1 trailing whitespace in duration for gmatch 
+    local duration_tws, artist = artist_line:sub(1, s_i-0), artist_line:sub(s_j+1)
+
+    if duration_tws:sub(1,4) == "LIVE" then
+        return {H = 9999, M = 59, S = 59}
+    end
+
+    local time_seg = {}
+    for t in duration_tws:gmatch('(%d+)[:%s]') do table.insert(time_seg, t) end
+    if #time_seg == 2 then table.insert(time_seg, 1, "0") end
+
+    return {H = tonumber(time_seg[1]), M = tonumber(time_seg[2]), S = tonumber(time_seg[3])}
+end
 
 local function filter_results(search_results)
-    if #search_results > 1 and string.find(search_results[1].artist, "patreon.com") then -- Filter out patreon message
+    -- Filter patreon message
+    if #search_results > 0 and string.find(search_results[1].artist, "patreon.com") then
         table.remove(search_results, 1)
     end
-    return search_results
+
+    -- Filter Live streams. Leave long videos for now, but dimmed in UI
+    local search_results_f = {}
+    for i, result in ipairs(search_results) do
+        result.duration = parse_time(result.artist)
+        if result.duration.H ~= 9999 then
+            table.insert(search_results_f, result)
+        end
+    end
+    -- if nothing remains after filtering, return the original set instead
+    return #search_results_f > 0 and search_results_f or search_results
 end
+
 
 function M.http_search_loop()
     while true do

@@ -336,43 +336,41 @@ local function write_search_results()
     sr_window.clear()
     -- term.redirect(sr_window)
 
-    -- for i = 1+idx_start, idx_end, 1 do
     local sr_subset = search_result_subset()
-    -- rednet.send(SERVER_ID, {"LOG", pretty.render(pretty.pretty(sr_subset))}, 'PROTO_SERVER')
-    -- for i,result in ipairs(sr_subset) do
-    local y = 1
-    -- for k,result in pairs(sr_subset) do
-    for _,k in pairs(sr_subset) do
-        -- if i == M.state.hl_idx then bg_color, song_color = song_color, bg_color end
+    if #sr_subset==0 then
+        sr_window.setCursorPos(2, 1)
+        sr_window.clearLine()
+        sr_window.setTextColor(config.colors.text_secondary)
+        sr_window.write("No results found.")
+        return
+    end
 
-        -- local y =1 + (i - 1) * sr_cfg.height
-        -- local y = sr_cfg.start_y + (i - 1) * sr_cfg.height
-        -- local y = sr_cfg.start_y + ((i - 1) % n_display) * sr_cfg.height
-        -- local y = ((k - 1) % n_display) * sr_cfg.height
+    local y = 1
+
+    for _,k in pairs(sr_subset) do
+
         local result = CSTATE.search_results[k]
+        local dur_mins = 60*result.duration.H + result.duration.M
+        local dim_thresh = 30 -- TODO: make config option?
+
         if k == M.state.hl_idx then
             set_colors(config.colors.text_active, config.colors.bg_active, sr_window)
         else
-            set_colors(config.colors.text, config.colors.bg, sr_window)
+            set_colors(dur_mins <= dim_thresh and config.colors.text or config.colors.text_tertiary, config.colors.bg, sr_window)
         end
 
-        -- sr_window.setCursorPos(2, y)
         sr_window.setCursorPos(2, y)
         sr_window.clearLine()
         sr_window.write(result.name)
         y = y + 1
-        -- if result then term.write(result.name) end
-        
-        sr_window.setTextColor(config.colors.text_secondary)
-        -- sr_window.setCursorPos(2, y + 1)
+    
+        sr_window.setTextColor(dur_mins <= dim_thresh and config.colors.text_secondary or config.colors.text_tertiary)
+
         sr_window.setCursorPos(2, y)
         sr_window.clearLine()
 
         sr_window.write(result.artist)
         y = y + 1
-        -- if result then term.write(result.artist) end
-        
-        -- if i == M.state.hl_idx then bg_color, song_color = song_color, bg_color end -- swap back
     end
     -- sr_window.setVisible(false)
     -- term.setBackgroundColor(config.colors.black)
