@@ -72,9 +72,9 @@ local _MOCK_PLAYER_DETECTOR = {getOnlinePlayers = function() return {'Player1',}
 
 -- --[[  end filler code // ]]
 
-
-local chatBox = peripheral.find("chatBox") or _MOCK_CHAT_BOX
-local playerDetector = peripheral.find("playerDetector")
+-- AP >= 1.21.1-0.7.50b uses snake_case, older use camelCase
+local chatBox = peripheral.find("chat_box") or peripheral.find("chatBox") or _MOCK_CHAT_BOX
+local playerDetector = peripheral.find("player_detector") or peripheral.find("playerDetector")
 -- https://docs.advanced-peripherals.de/latest/peripherals/chat_box/
 -- https://docs.advanced-peripherals.de/latest/peripherals/player_detector/
 
