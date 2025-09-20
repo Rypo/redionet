@@ -214,13 +214,13 @@ local function server_event_loop()
     end
 end
 
+local reload = false
 local function system_stop_event()
     -- The only events that should allow the program to terminate
     parallel.waitForAny(
         function ()
             os.pullEvent('redionet:reload')
-            local tabid = shell.openTab('server')
-            shell.exit()
+            reload = true
         end,
         function ()
             os.pullEvent('redionet:reboot')
@@ -238,3 +238,5 @@ parallel.waitForAny(
     chat.chat_loop,
     network.handle_http_download
 )
+
+if reload then shell.run('server') end

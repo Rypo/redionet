@@ -100,9 +100,8 @@ M.state.clicked_result_index = nil
 M.state.loop_mode = 0 -- Local only
 M.state.ui_enabled = true -- alias for (not CSTATE.is_paused) currently
 
--- when opened in a tab, term_height-=1. Updating breifly opens+closes a new tab, throwing off the calcuation. 
--- Clamping at 3 fixes this, but then intentionally running client in new tab will show a half result. TODO: dynamic term h/w
-M.state.search_items_visible = math.max(3, math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height))
+-- running client in new tab will show a half result if round up
+M.state.search_items_visible = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
 
 M.state.hl_idx = nil -- highlight index in search results
 M.state.sr_menu = {
