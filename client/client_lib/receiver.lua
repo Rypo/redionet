@@ -76,10 +76,6 @@ local function play_audio(buffer, state)
             function()
                 os.pullEvent("redionet:playback_stopped")
                 state.active_stream_id="HALT" -- mute doesn't use is_paused, need a way to breakout 
-            end,
-            function ()
-                rednet.receive('PROTO_AUDIO_HALT') -- breakout faster when full if receive PROTO_AUDIO_HALT here?
-                state.active_stream_id="HALT"
             end
         )
         if CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
@@ -96,6 +92,7 @@ function M.receive_loop()
     while true do
         parallel.waitForAny(
             function ()
+                -- interruptible.
                 id, message = rednet.receive('PROTO_AUDIO')
 
                 if CSTATE.is_paused then
@@ -103,15 +100,18 @@ function M.receive_loop()
                 else
                     local buffer, sub_state = table.unpack(message)
                     play_audio(buffer, sub_state)
-
-                    rednet.send(id, "request_next_chunk", 'PROTO_AUDIO_NEXT')
+                    -- need to check is_paused instead of returning bool because CLIENT_SYNC queues playback_stopped.
+                    -- want be able to stop playback, but then immediately get next chunk in this case
+                    rednet.send(id, (not CSTATE.is_paused) and "request_next_chunk" or "playback_stopped", 'PROTO_AUDIO_NEXT')
                 end
             end,
             
             function ()
+                -- interrupts. This returns faster than PROTO_AUDIO, if received while speakers yielding, it will interrupt 
                 id, message = rednet.receive('PROTO_AUDIO_HALT')
                 speaker.stop()
                 os.queueEvent("redionet:playback_stopped")
+                rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT') -- prevent server timeout warnings
             end,
             function ()
                 while true do -- no interrupt

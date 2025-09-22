@@ -170,7 +170,7 @@ local function transmit_audio(data_buffer)
 
     local reply = {ids = {}, times = {}}
 
-    local num_resp, num_next = 0, 0
+    local num_resp = 0
     local function play_task()
         local n_receivers = #receivers
 
@@ -180,7 +180,6 @@ local function transmit_audio(data_buffer)
                 num_resp = num_resp + 1 -- count all valid responses, stopped or next
 
                 if msg == "request_next_chunk" then
-                    num_next = num_next + 1
                     local timestamp_ms = os.epoch("local")
 
                     table.insert(reply.ids, id)
@@ -195,7 +194,7 @@ local function transmit_audio(data_buffer)
 
             else
                 n_receivers = n_receivers - 1 -- assume connection lost on timeout; lookup too disruptive
-                print('client timed out')
+                chat.log_message('a client timed out', 'WARN')
             end
         end
     end
@@ -208,7 +207,8 @@ local function transmit_audio(data_buffer)
     -- as long as prepop takes < ~2.75 seconds, it should never cause any delay
     -- alternatively, could do in parallel with lookup, which we know will take a fixed 2s
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
-    if num_next == 0 then
+    -- AUDIO_HALT makes all clients not request_next_chunk, thus #rep_ids=0. Check status to only warn if server is attempting to play 
+    if #reply.ids == 0 and STATE.data.status == 1 then
         chat.log_message('No remaining listeners... Stopping', 'WARN')
         return M.stop_song()
     end
