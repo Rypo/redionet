@@ -53,7 +53,7 @@ function M.toggle_play_local(mute_mode)
 
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         CSTATE.is_paused = false
-        rednet.broadcast('sync', 'PEER_SYNC')
+        rednet.broadcast('sync', 'PROTO_CLIENT_SYNC')
 
     else
         CSTATE.is_paused = true
@@ -67,11 +67,12 @@ local function play_audio(buffer, state)
     DBGMON(('play_audio - chunk: %d, song: %s, vol: %0.2f'):format(state.chunk_id, state.song_id, CSTATE.volume))
 
     while not speaker.playAudio(buffer, CSTATE.is_muted and 0 or CSTATE.volume) do
+        local t_full = os.epoch('local')
         DBGMON('SPEAKER FULL')
         parallel.waitForAny(
             function()
                 os.pullEvent("speaker_audio_empty")
-                DBGMON('>>> SPEAKER EMPTY')
+                DBGMON(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
             end,
             function()
                 os.pullEvent("redionet:playback_stopped")
@@ -87,7 +88,7 @@ end
 function M.receive_loop()
     local id, message
     
-    rednet.broadcast('sync', 'PEER_SYNC') -- clients that late join may be ahead, needs peer sync
+    rednet.broadcast('sync', 'PROTO_CLIENT_SYNC') -- clients that late join may be ahead, needs peer sync
 
     while true do
         parallel.waitForAny(

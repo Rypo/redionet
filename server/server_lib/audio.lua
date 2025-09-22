@@ -12,6 +12,11 @@ local AUDIO_CHUNK_DURATION = 2.75 -- exact is (2^7 * 2^10) samples / 48000kHz = 
 
 local M = {}
 
+local previous = {
+    receivers = {},
+    req_chunk_times = {},
+    time_audio_sent = nil
+}
 
 ---@class Buffer
 local Buffer = {}
@@ -123,13 +128,21 @@ function Buffer.new(handle, song_id)
     return self
 end
 
-local function lookup_receivers()
-    -- local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes a minimum of 2 seconds. But delay this seems to help with sync issues?
+local function lookup_receivers(min_wait,max_wait)
+    -- local receivers = { rednet.lookup("PROTO_AUDIO") } -- this takes a minimum of 2 seconds.
     -- https://github.com/cc-tweaked/CC-Tweaked/blob/9e233a9/projects/core/src/main/resources/data/computercraft/lua/rom/apis/rednet.lua#L422
-
     -- builtin rednet.lookup method does not prune inactive receivers. Waiting on a response from inactive clients causes audio stutter.  
+
+    -- fixed timeouts >~1.5s cause issues with long audio -- buffers never full, sync lost.
+    -- fixed timeouts < 0.5s cause frequent audio gaps, clients fail to respond in time
+    -- in general, longer timeout = shorter speaker buffer full duration and vis versa 
+    min_wait,max_wait = min_wait or 350, max_wait or 1250 -- need min_wait to add new clients, but healthy clients typically respond in <= 1 tick.
+
+    local prev_n_receivers = #previous.receivers>0 and #previous.receivers or math.huge
     local receivers = {}
-    local timer, tid = os.startTimer(2), nil
+
+    local tid
+    local timer_min, timer_max = os.startTimer(min_wait/1000), os.startTimer(max_wait/1000)
     rednet.broadcast('status', 'PROTO_AUDIO_STATUS')
 
     parallel.waitForAny(
@@ -139,13 +152,22 @@ local function lookup_receivers()
                 table.insert(receivers, id)
             end
         end,
-        function () repeat _,tid = os.pullEvent('timer') until tid == timer end
+        function ()
+            while true do
+                _,tid = os.pullEvent('timer')
+                if (tid == timer_min and #receivers >= prev_n_receivers) or tid == timer_max then
+                    return
+                end
+            end
+        end
     )
-    os.cancelTimer(timer)
+    os.cancelTimer(timer_min)
+    os.cancelTimer(timer_max)
+
+    previous.receivers = receivers
     return receivers
 end
 
-local last_chunktime = {}
 
 --  broadcasts the decoded audio buffer data over PROTO_AUDIO
 local function transmit_audio(data_buffer)
@@ -162,9 +184,13 @@ local function transmit_audio(data_buffer)
         chat.log_message('No visible client connections... Stopping', 'WARN')
         return M.stop_song()
     end
-    
-    rednet.broadcast({buffer, sub_state}, 'PROTO_AUDIO') -- takes ~ 36-38 ms, must come after lookup
 
+    rednet.broadcast({buffer, sub_state}, 'PROTO_AUDIO') -- takes ~ 36-38 ms, must come after lookup
+    local time_audio_sent = os.epoch('local')
+    if previous.time_audio_sent then
+        chat.log_message(('last audio send: %sms'):format(time_audio_sent - previous.time_audio_sent), "DEBUG")
+    end
+    previous.time_audio_sent = time_audio_sent
 
     local timeout = AUDIO_CHUNK_DURATION + 0.2 -- 4 extra ticks / 200ms 
 
@@ -184,12 +210,12 @@ local function transmit_audio(data_buffer)
 
                     table.insert(reply.ids, id)
                     table.insert(reply.times, timestamp_ms)
-                    local play_duration = timestamp_ms - (last_chunktime[id] or timestamp_ms)
+                    local play_duration = timestamp_ms - (previous.req_chunk_times[id] or timestamp_ms)
                 
                     -- os.queueEvent("redionet:log_message", string.format('(%s) %d %s | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), id, msg, #reply.ids, n_receivers), "DEBUG")
                     chat.log_message(string.format('(%s, %dms) %d | n=%d/%d', ("%0.3f"):format(timestamp_ms/1000):sub(7), play_duration, id, #reply.ids, n_receivers ), "DEBUG")
 
-                    last_chunktime[id] = timestamp_ms
+                    previous.req_chunk_times[id] = timestamp_ms
                 end
 
             else
@@ -205,7 +231,7 @@ local function transmit_audio(data_buffer)
     
     -- THIS is where we can sneak in pre-populate -- while waiting on speakers. 
     -- as long as prepop takes < ~2.75 seconds, it should never cause any delay
-    -- alternatively, could do in parallel with lookup, which we know will take a fixed 2s
+    -- alternatively, could do in parallel with lookup, but less guaranteed time 
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
     -- AUDIO_HALT makes all clients not request_next_chunk, thus #rep_ids=0. Check status to only warn if server is attempting to play 
     if #reply.ids == 0 and STATE.data.status == 1 then
@@ -217,13 +243,17 @@ local function transmit_audio(data_buffer)
         local desync_ms = (math.max(table.unpack(reply.times)) - math.min(table.unpack(reply.times)))
         -- os.queueEvent("redionet:log_message", string.format('max client desync: %dms | n=%d/%d', desync_ms, #reply.ids, #receivers), "INFO")
         chat.log_message(string.format('max client desync: %dms | n=%d/%d', desync_ms, #reply.times, #receivers), "INFO")
-        if desync_ms > 100 then -- more than 100ms lag time, dig deeper
-            local id_order,delay = {},{}
+
+        if desync_ms > 1000 then -- more than 1000ms lag time, warn and resync
+            chat.log_message(string.format('Detected client desync. Forcing sync..'), "WARN")
+            
+            local id_order, delay = {'ID:'}, {'LAG'}
             for i,id in ipairs(reply.ids) do
-                id_order[i] = ("[%d] %d"):format(i, id)
-                delay[i] = ("%dms"):format((i<#reply.times and reply.times[i+1] - reply.times[i]) or 0)
+                id_order[i+1] = ("%d"):format(id)
+                delay[i+1] = ("%dms"):format((i < #reply.times and reply.times[i+1] - reply.times[i]) or 0)
             end
             textutils.tabulate(colors.white, id_order, colors.pink, delay)
+            rednet.broadcast('sync', 'PROTO_CLIENT_SYNC')
         end
     end
 
