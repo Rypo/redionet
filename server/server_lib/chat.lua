@@ -163,7 +163,13 @@ function M.chat_loop()
                 
                 -- probably too rigid long term, but fine for now while few commands
                 if cmds_set[cmd] then
-                    M.log_message(("Command received: %s"):format(cmd), "INFO")
+                    local response = ("Command received: %s"):format(cmd)
+                    if ishidden then
+                        M.log_message(response, "INFO")
+                    else
+                        chatBox.sendMessage(response, '&2'..'CMD', "[]", '&f') -- dark_green, white
+                    end
+
                     rednet.broadcast(cmd, 'PROTO_COMMAND')
                     
                     os.queueEvent(('redionet:%s'):format(cmd))
