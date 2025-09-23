@@ -64,15 +64,15 @@ end
 
 local function play_audio(buffer, state)
     if not buffer or CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
-    DBGMON(('play_audio - chunk: %d, song: %s, vol: %0.2f'):format(state.chunk_id, state.song_id, CSTATE.volume))
+    UTIL.dbgmon(('play_audio - chunk: %d, song: %s, vol: %0.2f'):format(state.chunk_id, state.song_id, CSTATE.volume))
 
     while not speaker.playAudio(buffer, CSTATE.is_muted and 0 or CSTATE.volume) do
         local t_full = os.epoch('local')
-        DBGMON('SPEAKER FULL')
+        UTIL.dbgmon('SPEAKER FULL')
         parallel.waitForAny(
             function()
                 os.pullEvent("speaker_audio_empty")
-                DBGMON(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
+                UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
             end,
             function()
                 os.pullEvent("redionet:playback_stopped")

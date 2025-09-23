@@ -6,6 +6,8 @@
 peripheral.find("modem", rednet.open)
 if not rednet.isOpen() then error("Failed to establish rednet connection. Attach a modem to continue.", 0) end
 
+SERVER_ID = nil     -- set in setup_server_connection
+
 CLIENT_ID = os.getComputerID()
 HOST_NAME = 'client_'..CLIENT_ID
 
@@ -33,74 +35,84 @@ CSTATE = {
 }
 
 
-local monitor = peripheral.find('monitor')
-if monitor then monitor.setTextScale(0.5) end
-
-function DBGMON(message)
-    if not monitor then return end
-
-    if type(message) == "table" then
-        local pp = require('cc.pretty')
-        message = pp.render(pp.pretty(message), 20)
-    end
-    local time_ms = os.epoch("local")
-    local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
-    local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
-    local bterm = term.current()
-    term.redirect(monitor)
-    print(log_msg)
-    term.redirect(bterm)
-end
+-- Global Client Utils
+UTIL = {
+    dbgmon = function (message) end, -- replaced if debug conditions are met, else remains no op
+}
 
 
-local function wait_server_connection()
-    write('Waiting for server connection... ')
-    local server_id
-    parallel.waitForAny(ui.loading_animation(), function ()
-        local id, response
-        repeat
-            server_id =  rednet.lookup('PROTO_SERVER')
-            if server_id then
-                rednet.send(server_id, {"PING", {}}, 'PROTO_SERVER')
-                id, response = rednet.receive(2)
-            end
-        until response == "PONG"
-        server_id = id
-    end)
-    return server_id
-end
+local speaker = peripheral.find("speaker")
+local monitor = peripheral.find("monitor")
 
-local function check_speaker()
-    if peripheral.find("speaker") then
-        rednet.host('PROTO_AUDIO', HOST_NAME)
-        return true
-    end
+
+local function warn_speaker()
     -- Recent CC:tweaked versions may support two peripherals on pocket 
     -- https://github.com/cc-tweaked/CC-Tweaked/commit/0a0c80d
     local no_warn = pocket and not pocket.equipBottom
     if no_warn then
-        print('Pocket Client (communication only)')
+        print('Pocket Client (no audio)')
     else
         local prev_color = term.getTextColor()
         term.setTextColor(colors.orange)
         print('WARN: No speaker attached. To receive audio on this device, attach speaker and reboot.')
         term.setTextColor(prev_color)
     end
-    return false
 end
 
+local function setup_server_connection()
+    write('Waiting for server connection... ')
+    local id, server_settings
+
+    parallel.waitForAny(ui.loading_animation(), function ()
+        local payload, code
+        repeat
+            id = rednet.lookup('PROTO_SERVER')
+            if id then
+                rednet.send(id, "CONFIG", 'PROTO_SERVER')
+
+                id, payload = rednet.receive('PROTO_SERVER:REPLY')
+                code, server_settings = table.unpack(payload)
+            end
+        until code == "CONFIG"
+    end)
+
+    SERVER_ID = id
+
+    return server_settings
+end
+
+if speaker then rednet.host('PROTO_AUDIO', HOST_NAME) else warn_speaker() end
+-- check speaker before connect to server to extend time warning visible
+local server_settings = setup_server_connection()
 
 
-local has_speaker = check_speaker()
-SERVER_ID = wait_server_connection()
+-- redefine global util if monitor available and server log level == debug
+if (monitor and server_settings['redionet.log_level'] == 1) then
+    local pp = require('cc.pretty')
+    monitor.setTextScale(0.5)
 
+    function UTIL.dbgmon(message)
+        if type(message) == "table" then
+            message = pp.render(pp.pretty(message), 20)
+        end
+
+        local time_ms = os.epoch("local")
+        local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
+        local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
+
+        local bterm = term.current()
+        term.redirect(monitor)
+        print(log_msg)
+        term.redirect(bterm)
+    end
+end
 
 
 
 --[[ Client Loops ]]
 
 local function client_loop()
-    local speaker = peripheral.find("speaker")
+    speaker = peripheral.find("speaker")
     while true do
         parallel.waitForAny(
             --[[
@@ -190,7 +202,7 @@ local client_functions = {
     net.http_search_loop
 }
 -- Only start receiver loop if there is a speaker to play audio
-if has_speaker then table.insert(client_functions, receiver.receive_loop) end
+if speaker then table.insert(client_functions, receiver.receive_loop) end
 
 
 parallel.waitForAny(table.unpack(client_functions))

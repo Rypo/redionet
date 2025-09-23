@@ -84,16 +84,26 @@ local function server_loop()
         print('Known client IDs:', table.unpack(initial_clients))
     end
 
+    settings.load()
+    local rn_config = { -- redionet settings to pass to clients
+        ['redionet.log_level'] = settings.get('redionet.log_level', 3),
+    }
+
     local id, message
 
     while true do
         parallel.waitForAny(
             function()
                 id, message = rednet.receive('PROTO_SERVER') -- General utilities
-                local code, payload = table.unpack(message)
-
-                if code == "PING" then
-                    rednet.send(id, "PONG")
+                local code, payload
+                if type(message) == "table" then code,payload = table.unpack(message)
+                else code = message
+                end
+                
+                if code == "CONFIG" then
+                    rednet.send(id, {code, rn_config}, 'PROTO_SERVER:REPLY')
+                elseif code == "PING" then
+                    rednet.send(id, {code, "PONG"}, 'PROTO_SERVER:REPLY')
                 elseif code == "LOG" then
                     chat.log_message(payload, "INFO")
                 end
