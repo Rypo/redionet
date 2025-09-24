@@ -367,13 +367,30 @@ local function write_search_results()
 
         sr_window.setCursorPos(2, y)
         sr_window.clearLine()
-
         sr_window.write(result.artist)
         y = y + 1
     end
     -- sr_window.setVisible(false)
     -- term.setBackgroundColor(config.colors.black)
     -- term.redirect(orig_term)
+end
+
+local function write_funding()
+    -- show funding message IFF haven't searched yet
+    local y = select(2, term.getSize()) - 2
+    local result = {
+        id='9Se1cKmJ_Ik',
+        name='\x10 Hosting is expensive! Please help.',
+        artist='\x10 patreon.com/exclamatory'
+    }
+
+    term.setCursorPos(2, y + 1)
+    term.clearLine()
+    term.write(result.name)
+
+    term.setCursorPos(2, y + 2)
+    term.clearLine()
+    term.write(result.artist)
 end
 
 local function draw_search_tab()
@@ -399,7 +416,9 @@ local function draw_search_tab()
             term.write("Searching...")
         else
             term.setTextColor(config.colors.text_secondary)
-            print("Tip: You can paste YouTube video or playlist links.")
+            -- print("Tip: You can paste YouTube video or playlist links.")
+            print("Tip: You can also paste YouTube links")
+            write_funding()
         end
     end
 end
