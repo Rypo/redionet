@@ -34,14 +34,14 @@ end
 function M.send_server_queue(result, code)
     CSTATE.is_paused = false -- queue manipulation = join session if not already
     rednet.send(SERVER_ID, {code, result},  "PROTO_SERVER_QUEUE")
-    os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant  
+    os.queueEvent('redionet:sync_state')
 end
 
 ---@param code string [TOGGLE, SKIP, LOOP, STATE]
 ---@param loop_mode? number loop mode [0,1,2] for server playback (only applicable for code=LOOP)
 function M.send_server_player(code, loop_mode)
     rednet.send(SERVER_ID, {code, loop_mode},  "PROTO_SERVER_PLAYER")
-    os.queueEvent('redionet:sync_state') -- server already automatically send state update response, might be redundant 
+    os.queueEvent('redionet:sync_state')
 end
 
 function M.toggle_play_local(mute_mode)

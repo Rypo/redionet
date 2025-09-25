@@ -52,9 +52,8 @@ function STATE.broadcast(caller_info)
         status = STATE.data.status,
         error_status = STATE.data.error_status
     }
-
+    chat.log_message(('STATE.broadcast: %s'):format(caller_info), 'DEBUG')
     rednet.broadcast(sub_state, 'PROTO_SUB_STATE')
-    os.queueEvent('redionet:redraw_screen', "STATE.broadcast" .. ("(%s)"):format(caller_info or ""))
 end
 
 ---format state table as string 
@@ -93,21 +92,25 @@ local function server_loop()
     while true do
         parallel.waitForAny(
             function()
-                id, message = rednet.receive('PROTO_SERVER') -- General utilities
-                local code, payload
-                if type(message) == "table" then code,payload = table.unpack(message)
-                else code = message
-                end
-                
-                if code == "CONFIG" then
-                    rednet.send(id, {code, rn_config}, 'PROTO_SERVER:REPLY')
-                elseif code == "PING" then
-                    rednet.send(id, {code, "PONG"}, 'PROTO_SERVER:REPLY')
-                elseif code == "LOG" then
-                    chat.log_message(payload, "INFO")
+                while true do
+                    id, message = rednet.receive('PROTO_SERVER') -- General utilities
+                    local code, payload
+                    if type(message) == "table" then
+                        code, payload = table.unpack(message)
+                    else
+                        code = message
+                    end
+
+                    if code == "CONFIG" then
+                        rednet.send(id, {code, rn_config}, 'PROTO_SERVER:REPLY')
+                    elseif code == "PING" then
+                        rednet.send(id, {code, "PONG"}, 'PROTO_SERVER:REPLY')
+                    elseif code == "LOG" then
+                        chat.log_message(payload, "INFO")
+                    end
                 end
             end,
-            
+            -- TODO: PROTO_SERVER_QUEUE / PROTO_SERVER_PLAYER - race condition possible?
             function()
                 id, message = rednet.receive('PROTO_SERVER_QUEUE') -- Song queue management
                 local code, payload = table.unpack(message)
@@ -140,29 +143,22 @@ local function server_loop()
                     STATE.data.status = 1
                     os.queueEvent('redionet:fetch_audio') -- TODO: monitor for interaction with Play Now
                 end
-                if code then -- code shouldn't be able be nil, but it was? TODO
-                    STATE.broadcast('PRO:S_queue: '..code) -- fetch audio already broadcasts state
-                end
-                
             end,
 
             function()
                 id, message = rednet.receive('PROTO_SERVER_PLAYER') -- server playback state management 
                 local code, payload = table.unpack(message)
                 
-                local dbg = 'PRO:S_player: '..code
-
-                if code == "STATE" then
-                    STATE.broadcast(dbg)
-                elseif code == "TOGGLE" then
-                    audio.toggle_play_pause()
-                    STATE.broadcast(dbg)
-                elseif code == "SKIP" then
-                    audio.skip_song()
-                    STATE.broadcast(dbg)
-                elseif code == "LOOP" then
-                    STATE.data.loop_mode = payload
-                    STATE.broadcast(dbg)
+                if code then
+                    if code == "STATE" then
+                        STATE.broadcast(('PROTO__PLAYER: STATE'))
+                    elseif code == "TOGGLE" then
+                        audio.toggle_play_pause()
+                    elseif code == "SKIP" then
+                        audio.skip_song()
+                    elseif code == "LOOP" then
+                        STATE.data.loop_mode = payload
+                    end
                 end
             end,
             
@@ -187,13 +183,6 @@ end
 local function server_event_loop()
     while true do
         parallel.waitForAny(
-            function()
-                while true do -- occurs frequently, prevent from interrupting other events
-                    local ev, origin = os.pullEvent('redionet:redraw_screen')
-                    chat.log_message(('redraw: %s'):format(origin), 'DEBUG')
-                    rednet.broadcast('redraw_screen', 'PROTO_UI')
-                end
-            end,
 
             function()
                 os.pullEvent('redionet:sync') -- Queued by command `rn sync`
@@ -202,7 +191,7 @@ local function server_event_loop()
 
             function ()
                 os.pullEvent('redionet:update') -- Queued by command `rn update`
-                
+
                 print('Updating...')
                 local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
                 local tabid = shell.openTab('wget run ' .. install_url)

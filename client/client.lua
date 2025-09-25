@@ -116,17 +116,21 @@ local function client_loop()
     while true do
         parallel.waitForAny(
             --[[
+                Client Event -> Server Message 
+            ]]
+            function ()
+                os.pullEvent('redionet:sync_state')
+                rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
+            end,
+            --[[
                 Server Message -> Client Event
             ]]
             function ()
-                rednet.receive('PROTO_UI')
-                os.queueEvent('redionet:redraw_screen')
-            end,
-            function ()
                 local id, sub_state = rednet.receive('PROTO_SUB_STATE')
-                CSTATE.server_state = sub_state or CSTATE.server_state -- avoid setting nil
+                CSTATE.server_state = sub_state
                 os.queueEvent('redionet:redraw_screen')
             end,
+            
             function ()
                 local id, command = rednet.receive('PROTO_COMMAND')
 
@@ -154,13 +158,7 @@ local function client_loop()
                     end
                 end
             end,
-            --[[
-                Client Event -> Server Message 
-            ]]
-            function ()
-                os.pullEvent('redionet:sync_state')
-                rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
-            end,
+
             --[[
                 (Peer|Server) Message -> Client Event 
             ]]

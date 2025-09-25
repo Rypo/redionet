@@ -377,7 +377,6 @@ function M.audio_loop()
             
             if not can_play then
                 event = "redionet:event_cancelled" -- skip the event handling below
-                os.queueEvent("redionet:redraw_screen", "audio.audio_loop(event_cancelled)")
             end
             
             STATE.broadcast("audio_loop - ".. event) -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
