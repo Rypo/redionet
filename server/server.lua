@@ -196,8 +196,13 @@ local function server_event_loop()
                 end
             end,
 
+            function()
+                os.pullEvent('redionet:sync') -- Queued by command `rn sync`
+                rednet.broadcast('sync', 'PROTO_CLIENT_SYNC')
+            end,
+
             function ()
-                os.pullEvent('redionet:update')
+                os.pullEvent('redionet:update') -- Queued by command `rn update`
                 
                 print('Updating...')
                 local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"

@@ -129,8 +129,12 @@ local function client_loop()
             end,
             function ()
                 local id, command = rednet.receive('PROTO_COMMAND')
+
+                if command == 'sync' then
+                    -- no op, 
+                    -- server broadcasts PROTO_CLIENT_SYNC
                 
-                if command == 'reboot' then
+                elseif command == 'reboot' then
                     if monitor then monitor.clear() end
                     os.queueEvent('redionet:reboot')
                 
@@ -138,7 +142,6 @@ local function client_loop()
                     os.queueEvent('redionet:reload')
                 
                 elseif command == 'update' then
-                    
                     local install_url = "https://raw.githubusercontent.com/Rypo/redionet/refs/heads/main/install.lua"
                     local tabid = shell.openTab('wget run ' .. install_url)
                     shell.switchTab(tabid)
@@ -165,7 +168,7 @@ local function client_loop()
                 -- flush the other speaker buffers whenever a client resumes play
                 -- this forces all clients to remain in sync
                 local id = rednet.receive('PROTO_CLIENT_SYNC')
-                if id ~= CLIENT_ID and speaker then
+                if speaker then
                     speaker.stop()
                     os.queueEvent("redionet:playback_stopped")
                 end
@@ -185,6 +188,7 @@ local function system_stop_event()
         function ()
             os.pullEvent('redionet:reload')
             reload = true
+            term.setCursorPos(1, 1)
             term.setBackgroundColor(colors.black)
             term.clear()
         end,

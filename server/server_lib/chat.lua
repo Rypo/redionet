@@ -132,7 +132,7 @@ function M.log_message(message, level)
 end
 
 function M.chat_loop()
-    local commands_list = {'reboot', 'reload', 'update'}
+    local commands_list = {'reboot', 'reload', 'update', 'sync'}
 
     local cmds_set = {}
     for _, cmd in ipairs(commands_list) do cmds_set[cmd] = true end
@@ -160,10 +160,10 @@ function M.chat_loop()
                 local ev, user, message, uuid, ishidden = os.pullEvent("chat")
                 message = string.lower(message)
                 local cmd = message:match("rn (%l+)") -- match format: "rn lowercaseletters"
-                
+
                 -- probably too rigid long term, but fine for now while few commands
                 if cmds_set[cmd] then
-                    local response = ("Command received: %s"):format(cmd)
+                    local response = ("Redionet command received: %s"):format(cmd)
                     if ishidden then
                         M.log_message(response, "INFO")
                     else
