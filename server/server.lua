@@ -32,7 +32,6 @@ STATE.data = {
     -- Audio Network State
     active_stream_id = nil, -- The MOST important server state value. This ~= nil IFF there is sound coming out of the speakers (aka song is playing).
 
-    last_download_id = nil, -- only accessed by `network`
     is_loading = false,     -- set in `network`, get in client.ui
     error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR, false
     response_handle = nil,  -- ReadHandle from http.request containing binary song data
