@@ -233,8 +233,9 @@ local function transmit_audio(data_buffer)
     -- as long as prepop takes < ~2.75 seconds, it should never cause any delay
     -- alternatively, could do in parallel with lookup, but less guaranteed time 
     local ok, err = pcall(parallel.waitForAll, play_task, prefill_buffer)
-    -- AUDIO_HALT makes all clients not request_next_chunk, thus #rep_ids=0. Check status to only warn if server is attempting to play 
-    if #reply.ids == 0 and STATE.data.status == 1 then
+    -- PROTO_AUDIO_HALT makes all clients not request_next_chunk, thus #rep_ids=0. Only warn if server has active song. 
+    -- Noteably, audio.stop_song broadcasts halt. stop_song is also called when a song is skipped, or play now clicked.
+    if #reply.ids == 0 and STATE.data.active_stream_id ~= nil then
         chat.log_message('No remaining listeners... Stopping', 'WARN')
         return M.stop_song()
     end
