@@ -56,7 +56,7 @@ function M.handle_http_download()
                     STATE.data.active_stream_id = M.state.last_download_id
                     STATE.data.response_handle = handle
 
-                    os.queueEvent("redionet:audio_chunk_ready")
+                    os.queueEvent("redionet:audio_ready")
                     
                 elseif event == "http_failure" then
                     local err = eventData[3]

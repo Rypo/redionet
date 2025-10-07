@@ -26,7 +26,7 @@ STATE.data = {
     -- Playback State
     status = -1,            -- -1=cannot_play/empty/waiting, 0=stopped, 1=streaming 
     queue = {},             -- song queue, list of objects like active_song_meta
-    active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str}
+    active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str, duration={H=int, M=int, S=int}}
     loop_mode = 0,          -- 0: Off, 1: Queue/List, 2: Song
 
     -- Audio Network State
@@ -186,6 +186,7 @@ local function server_event_loop()
 
             function()
                 os.pullEvent('redionet:sync') -- Queued by command `rn sync`
+                audio.state.speaker_cache = 0 -- stopping speakers wipes any buffered audio
                 rednet.broadcast('sync', 'PROTO_CLIENT_SYNC')
             end,
 

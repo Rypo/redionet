@@ -53,26 +53,29 @@ function M.toggle_play_local(mute_mode)
 
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         CSTATE.is_paused = false
-        rednet.broadcast('sync', 'PROTO_CLIENT_SYNC')
-
+        rednet.send(SERVER_ID, 1, 'PROTO_AUDIO_CONNECTION')
     else
         CSTATE.is_paused = true
         speaker.stop()
+        rednet.send(SERVER_ID, -1, 'PROTO_AUDIO_CONNECTION')
         os.queueEvent("redionet:playback_stopped")
     end
 end
 
 local function play_audio(buffer, state)
     if not buffer or CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
-    UTIL.dbgmon(('play_audio - chunk: %d, song: %s, vol: %0.2f'):format(state.chunk_id, state.song_id, CSTATE.volume))
+    local timefmt = ('%d:%02d'):format(math.floor(state.audio_position_sec / 60), math.floor(state.audio_position_sec % 60))
+    UTIL.dbgmon(('- %s - chunk: %d, song: %s, vol: %0.2f'):format(timefmt, state.chunk_id, state.song_id, CSTATE.volume))
 
     while not speaker.playAudio(buffer, CSTATE.is_muted and 0 or CSTATE.volume) do
-        local t_full = os.epoch('local')
+        -- local t_full = os.epoch('local')
+        local t_full = os.epoch('ingame')
         UTIL.dbgmon('SPEAKER FULL')
         parallel.waitForAny(
             function()
                 os.pullEvent("speaker_audio_empty")
-                UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
+                -- UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
+                UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format((os.epoch('ingame')-t_full)/72)) -- ingame 72ms : 1ms
             end,
             function()
                 os.pullEvent("redionet:playback_stopped")
@@ -87,8 +90,8 @@ end
 
 function M.receive_loop()
     local id, message
-    
-    rednet.broadcast('sync', 'PROTO_CLIENT_SYNC') -- clients that late join may be ahead, needs peer sync
+
+    rednet.send(SERVER_ID, CSTATE.is_paused and -1 or 1, 'PROTO_AUDIO_CONNECTION')
 
     while true do
         parallel.waitForAny(
@@ -112,12 +115,12 @@ function M.receive_loop()
                 id, message = rednet.receive('PROTO_AUDIO_HALT')
                 speaker.stop()
                 os.queueEvent("redionet:playback_stopped")
-                rednet.send(id, "playback_stopped", 'PROTO_AUDIO_NEXT') -- prevent server timeout warnings
+                rednet.send(id, "playback_interrupted", 'PROTO_AUDIO_NEXT') -- prevent server timeout warnings
             end,
             function ()
                 while true do -- no interrupt
                     id, message = rednet.receive('PROTO_AUDIO_STATUS')
-                    rednet.send(id, (not CSTATE.is_paused), 'PROTO_AUDIO_STATUS:REPLY')
+                    rednet.send(id, CSTATE.is_paused and -1 or 1, 'PROTO_AUDIO_CONNECTION')
                 end
             end
         )
