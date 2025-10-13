@@ -69,8 +69,10 @@ local function setup_server_connection()
             if id then
                 rednet.send(id, "CONFIG", 'PROTO_SERVER')
 
-                id, payload = rednet.receive('PROTO_SERVER:REPLY')
-                code, server_settings = table.unpack(payload)
+                id, payload = rednet.receive('PROTO_SERVER:REPLY', 1.0)
+                if payload then
+                    code, server_settings = table.unpack(payload)
+                end
             end
         until code == "CONFIG"
     end)
