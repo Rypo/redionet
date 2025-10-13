@@ -22,7 +22,6 @@ CSTATE = {
     search_results = nil,       -- list of at most 21 song_meta tables
     is_paused = false,          -- if true, client stops processing music data transmissions
     volume = 1.5,               -- value between 0 and 3
-    is_muted = false,
     error_status = false,       -- SEARCH_ERROR, false
     server_state = {
         active_song_meta = nil,

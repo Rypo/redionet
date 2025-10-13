@@ -44,13 +44,7 @@ function M.send_server_player(code, loop_mode)
     os.queueEvent('redionet:sync_state')
 end
 
-function M.toggle_play_local(mute_mode)
-    if mute_mode then
-        CSTATE.is_paused = false
-        CSTATE.is_muted = not CSTATE.is_muted
-        return
-    end
-
+function M.toggle_play_local()
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         CSTATE.is_paused = false
         rednet.send(SERVER_ID, 1, 'PROTO_AUDIO_CONNECTION')
@@ -67,7 +61,7 @@ local function play_audio(buffer, state)
     local timefmt = ('%d:%02d'):format(math.floor(state.audio_position_sec / 60), math.floor(state.audio_position_sec % 60))
     UTIL.dbgmon(('- %s - chunk: %d, song: %s, vol: %0.2f'):format(timefmt, state.chunk_id, state.song_id, CSTATE.volume))
 
-    while not speaker.playAudio(buffer, CSTATE.is_muted and 0 or CSTATE.volume) do
+    while not speaker.playAudio(buffer, CSTATE.volume) do
         -- local t_full = os.epoch('local')
         local t_full = os.epoch('ingame')
         UTIL.dbgmon('SPEAKER FULL')
@@ -79,7 +73,7 @@ local function play_audio(buffer, state)
             end,
             function()
                 os.pullEvent("redionet:playback_stopped")
-                state.active_stream_id="HALT" -- mute doesn't use is_paused, need a way to breakout 
+                state.active_stream_id="HALT" -- a way to breakout when interrupted but not paused
             end
         )
         if CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end

@@ -48,8 +48,8 @@ config.ui = {
     -- Global Server play button
     server_play_button = {x = config.term_width - 6, y = 1, width = 6, label_play = " START", label_stop = "  HALT", label_wait = "  \183\183\183 "},
     -- Now Playing Tab
-    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop ", label_mute = " Mute " },
-    play_button = { x = 2, y = 6, width = 6, label_play = " Join ", label_stop = " Quit ", label_mute = " Mute " },
+    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop "},
+    play_button = { x = 2, y = 6, width = 6, label_play = " Join ", label_stop = " Quit "},
     skip_button = { x = 10, y = 6, width = 6, label = " Skip " }, -- +1 extra gap 
     loop_button = { x = 17, y = 6, width = 10, labels = { " Loop Off ", " Loop All ", " Loop One " } },
     volume_slider = { x = 2, y = 8, width = 25 },
@@ -73,22 +73,6 @@ if pocket then
     config.ui.server_play_button = config.pocket_ui.server_play_button
 end
 
-
-config.client_mode_mute = false
---[[ 
-Mute Mode
-- Cons: Significant delay on "Play/Mute" (waiting for speaker buffer clear)
-- Pros: Other clients are completely unaffected by a client's Mute/Play
-
-Local Stop Mode
-- Cons: Other clients need to stop and jump forward (speaker buffer clear) whenever a client hits "Play"
-- Pros: Near instant button feedback
-
-The Ideal Mode (TODO)
-- client click "Stop", instant stop, other clients unaffected 
-- client click "Play", delay (w/ "joining.." message) until other clients' speaker buffers are empty, then begin playback, other clients unaffected 
-- pinning down the point of safe entry and how to delay w/o timeout until it's reached has been the key implementation challenge thus far
-]]
 
 
 -- UI CLIENT STATE --
@@ -237,11 +221,7 @@ local function draw_now_playing_tab()
     set_colors(config.colors.text, config.colors.btn_bg) -- reset after box draw
     term.setCursorPos(btn_cfg.x, btn_cfg.y)
 
-    if config.client_mode_mute then
-        term.write((CSTATE.is_muted == false) and btn_cfg.label_mute or btn_cfg.label_play)
-    else
-        term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play) -- STATE.is_paused==nil should show play label, no falsy eval
-    end
+    term.write((CSTATE.is_paused == false) and btn_cfg.label_stop or btn_cfg.label_play)
 
     -- Skip
     local skip_enabled = CSTATE.server_state.status > -1 -- skip button active also depends on if there is a song to skip
@@ -573,7 +553,7 @@ local function handle_click(button, x, y)
     if M.state.active_tab == 1 then -- Now Playing Tab
         if y == config.ui.play_button.y then
             if is_in_box(x, y, config.ui.play_button) then
-                receiver.toggle_play_local(config.client_mode_mute) -- local play/pause
+                receiver.toggle_play_local() -- local play/pause
 
             elseif M.state.ui_enabled then
                 local skip_enabled = CSTATE.server_state.status > -1
