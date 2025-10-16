@@ -180,20 +180,20 @@ end
 
 receiver.update_server_state(true) -- get initial server state before proceeding
 
-local reload = false
+local on_exit
 local function system_stop_event()
     -- The only events that should allow the program to terminate
     parallel.waitForAny(
         function ()
             os.pullEvent('redionet:reload')
-            reload = true
+            on_exit = 'reload'
             term.setCursorPos(1, 1)
             term.setBackgroundColor(colors.black)
             term.clear()
         end,
         function ()
             os.pullEvent('redionet:reboot')
-            os.reboot()
+            on_exit = 'reboot'
         end
     )
 end
@@ -210,4 +210,6 @@ if speaker then table.insert(client_functions, receiver.receive_loop) end
 
 parallel.waitForAny(table.unpack(client_functions))
 
-if reload then shell.run('client') end
+if     on_exit == 'reload' then shell.run('client')
+elseif on_exit == 'reboot' then os.reboot()
+end

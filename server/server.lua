@@ -218,17 +218,17 @@ local function server_event_loop()
     end
 end
 
-local reload = false
+local on_exit
 local function system_stop_event()
     -- The only events that should allow the program to terminate
     parallel.waitForAny(
         function ()
             os.pullEvent('redionet:reload')
-            reload = true
+            on_exit = 'reload'
         end,
         function ()
             os.pullEvent('redionet:reboot')
-            os.reboot()
+            on_exit = 'reboot'
         end
     )
 end
@@ -243,4 +243,6 @@ parallel.waitForAny(
     network.handle_http_download
 )
 
-if reload then shell.run('server') end
+if     on_exit == 'reload' then shell.run('server')
+elseif on_exit == 'reboot' then os.reboot()
+end
