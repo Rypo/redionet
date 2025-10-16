@@ -183,6 +183,16 @@ end
 local function server_event_loop()
     while true do
         parallel.waitForAny(
+            function()
+                local ev, cmd = os.pullEvent('redionet:issue_command')
+                -- need to be cautious about when sync occurs. If timing is off, it will *grow* the speaker buffer rather than clear it
+                if cmd == 'sync' then
+                    audio.state.need_sync = true
+                else
+                    rednet.broadcast(cmd, 'PROTO_COMMAND')
+                    os.queueEvent(('redionet:%s'):format(cmd))
+                end
+            end,
 
             function()
                 os.pullEvent('redionet:sync') -- Queued by command `rn sync`

@@ -170,9 +170,8 @@ function M.chat_loop()
                         chatBox.sendMessage(response, '&2'..'CMD', "[]", '&f') -- dark_green, white
                     end
 
-                    rednet.broadcast(cmd, 'PROTO_COMMAND')
+                    os.queueEvent('redionet:issue_command', cmd)
                     
-                    os.queueEvent(('redionet:%s'):format(cmd))
                 elseif cmd then
                     M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(commands_list, ', ')), "ERROR")
                 end
