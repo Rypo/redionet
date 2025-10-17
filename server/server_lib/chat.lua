@@ -1,17 +1,41 @@
 --[[
     Chat module
-    Handles song announcements and information logging
+    Handles song announcements, information logging, and chat commands
 ]]
+local w,h = term.getSize()
+local monitor = peripheral.find("monitor")
 
----apply chatBox style formatting to parenthesized label text
----@param paren_text string
----@param paren_style? string options: "[]","<>", "()". default "[]"
----@param paren_color? string MoTD color code. Default: "&f"
----@return string
-local function format_paren(paren_text, paren_style, paren_color)
-    paren_color = paren_color or "&f"
-    paren_style = paren_style or "[]"
-    return paren_color..paren_style:sub(1,1)..paren_text..paren_color..paren_style:sub(2,2)
+local orig_term = term.current()
+local log_window = monitor or window.create(orig_term, 1, 1, w, h-1) -- log to monitor if available or create sub window
+local cmd_window = window.create(orig_term, 1, h, w, 1)
+
+
+local M = {}
+
+settings.load()
+M.LOG_LEVEL = settings.get('redionet.log_level', 3)
+
+M.commands_list = {'reboot', 'reload', 'update', 'sync'}
+M.command_valid = {} -- Set
+for _,v in ipairs(M.commands_list) do M.command_valid[v] = true end
+
+M.term = log_window
+term.redirect(log_window)
+
+---temporarily redirect to dst_term and write() text
+---@param text string text to write with auto wrapping and scrolling
+---@param dst_term? Redirect destination term redirect or window. Default: M.term
+function M.writeto(text, dst_term)
+    dst_term = dst_term or M.term --or term.current()
+
+    -- skip redirects if dst_term is already active 
+    if dst_term == term.current() then return write(text) end
+
+    local prev_term = term.redirect(dst_term)
+    if dst_term.restoreCursor then dst_term.restoreCursor() end
+    write(text)
+    term.redirect(prev_term)
+    if prev_term.restoreCursor then prev_term.restoreCursor() end
 end
 
 -- https://www.digminecraft.com/lists/color_list_pc.php
@@ -36,20 +60,44 @@ local motd_to_cct = {
     -- unused: colors.brown
 }
 
---- Crudely attempt to convert MOTD color codes to term colors and write to console
+--- Approximate MOTD color codes to term colors and write to console
 --- @param message_string string text containing MoTD color formats
 local function motd_to_termcolor(message_string)
-    local initial_color = term.getTextColor()
+    local initial_color = M.term.getTextColor()
     message_string = message_string:gsub("&[klmno]",""):gsub("&[r]","&f") -- remove format codes -- reset -> white
 
+    local c_prv
+    local cat_text = ""
+
     for c,text in string.gmatch(message_string, "(&%x)([^&]+)") do
-        term.setTextColor(motd_to_cct[c] or colors.brown) -- brown to notice parse failure
-        write(text) -- global write() handles word wrapping automatically, term.write does not -- https://tweaked.cc/module/_G.html#v:write , /lua/bios.lua#L58
+        if not c_prv then c_prv = c end
+        -- accumulate text while color is the same to avoid unnecessary writes
+        if c == c_prv then
+            cat_text = cat_text .. text
+        else
+            M.term.setTextColor(motd_to_cct[c_prv] or colors.brown) -- brown if parse fails 
+            M.writeto(cat_text)
+            cat_text = text
+        end
+        c_prv = c
     end
-    term.setTextColor(initial_color)
-    print() -- newline
+
+    M.term.setTextColor(motd_to_cct[c_prv] or colors.brown)
+    M.writeto(cat_text .. '\n')
+
+    M.term.setTextColor(initial_color)
 end
 
+---apply chatBox style formatting to parenthesized label text
+---@param paren_text string
+---@param paren_style? string options: "[]","<>", "()". default "[]"
+---@param paren_color? string MoTD color code. Default: "&f"
+---@return string
+local function format_paren(paren_text, paren_style, paren_color)
+    paren_color = paren_color or "&f"
+    paren_style = paren_style or "[]"
+    return paren_color..paren_style:sub(1,1)..paren_text..paren_color..paren_style:sub(2,2)
+end
 
 -- --[[ // begin filler code  ]]
 local _MOCK_CHAT_BOX = {
@@ -83,10 +131,6 @@ local loglvl = {
     value = {DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4}
 }
 
-local M = {}
-
-settings.load()
-M.LOG_LEVEL = settings.get('redionet.log_level', 3)
 
 function M.announce_song(artist, song_title)
     -- Song notification in chat
@@ -131,14 +175,84 @@ function M.log_message(message, level)
     end
 end
 
-function M.chat_loop()
-    local commands_list = {'reboot', 'reload', 'update', 'sync'}
 
-    local cmds_set = {}
-    for _, cmd in ipairs(commands_list) do cmds_set[cmd] = true end
+local function command_line()
+    local completion = require("cc.completion")
+
+    local cmd_opts = table.concat(M.commands_list, ',')
+    local history = {}
+
+    local input_active = false
+
+    local function read_timeout(timeout)
+        timeout = timeout or 10
+        local msg = ""
+        local timer, tid = os.startTimer(timeout), nil
+
+        parallel.waitForAny(
+            function () msg = read(nil, history, function(text) return completion.choice(text, M.commands_list) end) end,
+            function () repeat _, tid = os.pullEvent('timer') until tid == timer end,
+            function ()
+                while true do
+                    os.pullEvent('key') -- reset timer on key press
+                    os.cancelTimer(timer)
+                    timer = os.startTimer(timeout)
+                end
+            end
+        )
+        os.cancelTimer(timer)
+        cmd_window.setCursorBlink(false)
+        return msg
+    end
+
+    local function set_prompt()
+        cmd_window.setCursorPos(1, 1)
+        cmd_window.clearLine()
+        cmd_window.setTextColor(colors.yellow)
+        cmd_window.write("CMD> rn ")
+    end
+
+    set_prompt()
 
     while true do
+        local event = os.pullEvent()
+        if not input_active and (event == "mouse_click" or event == "key") then
+            input_active = true
+
+            set_prompt()
+
+            local prev_term = term.redirect(cmd_window)
+            local cmd_name = read_timeout(10) -- writeto expensive when cmd_window focused; release focus after 10s inactivity
+            term.redirect(prev_term)
+
+            if #cmd_name == 0 then -- timeout or user press enter w/o writing
+                set_prompt()
+            else
+                cmd_window.setCursorPos(1,1)
+                cmd_window.clearLine()
+
+                if M.command_valid[cmd_name] then
+                    if history[#history] ~= cmd_name then table.insert(history, cmd_name) end
+                    cmd_window.setTextColor(colors.lime)
+                    cmd_window.write(("[OK] rn %s."):format(cmd_name))
+
+                    os.queueEvent('redionet:issue_command', cmd_name)
+                else
+                    cmd_window.setTextColor(colors.red)
+                    cmd_window.write(("[ERR] rn `%s` | rn {%s}"):format(cmd_name, cmd_opts))
+                end
+            end
+
+            input_active = false
+        end
+    end
+end
+
+function M.chat_loop()
+    while true do
         parallel.waitForAny(
+            command_line,
+
             function()
                 while true do -- no interrupt
                     local ev, message, level = os.pullEvent('redionet:log_message')
@@ -162,7 +276,7 @@ function M.chat_loop()
                 local cmd = message:match("rn (%l+)") -- match format: "rn lowercaseletters"
 
                 -- probably too rigid long term, but fine for now while few commands
-                if cmds_set[cmd] then
+                if M.command_valid[cmd] then
                     local response = ("Redionet command received: %s"):format(cmd)
                     if ishidden then
                         M.log_message(response, "INFO")
@@ -171,9 +285,8 @@ function M.chat_loop()
                     end
 
                     os.queueEvent('redionet:issue_command', cmd)
-                    
                 elseif cmd then
-                    M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(commands_list, ', ')), "ERROR")
+                    M.log_message(("Unknown Command: 'rn %s'\nAvailable: rn {%s}"):format(cmd, table.concat(M.commands_list, ', ')), "ERROR")
                 end
             end
         )

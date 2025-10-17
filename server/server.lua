@@ -10,8 +10,7 @@ SERVER_ID = os.getComputerID()
 -- note: _could_ support multi-server where clients choose "station" via ID..but seems more trouble than it's worth
 rednet.host('PROTO_SERVER', 'server')
 
-local monitor = peripheral.find("monitor")
-if monitor then term.redirect(monitor) end -- redirect to larger debug screen, if available
+local original_term = term.current() -- chat module will redirect term to designated windows. Store it now for reset on reload
 
 local pretty = require("cc.pretty")
 
@@ -76,10 +75,10 @@ end
 
 local function server_loop()
     term.setTextColor(colors.white)
-    print(('[READY] Server ID: %d'):format(os.getComputerID()))
+    chat.writeto(('[READY] Server ID: %d\n'):format(os.getComputerID()))
     local initial_clients = { rednet.lookup('PROTO_AUDIO') }
     if #initial_clients > 0 then
-        print('Known client IDs:', table.unpack(initial_clients))
+        chat.writeto(('Known client IDs: <%s>\n'):format(table.concat(initial_clients, ',\t')))
     end
 
     settings.load()
@@ -193,7 +192,7 @@ local function server_event_loop()
                     os.queueEvent(('redionet:%s'):format(cmd))
                 end
             end,
-
+            
             function()
                 os.pullEvent('redionet:sync') -- Queued by command `rn sync`
                 audio.state.speaker_cache = 0 -- stopping speakers wipes any buffered audio
@@ -234,6 +233,7 @@ local function system_stop_event()
     parallel.waitForAny(
         function ()
             os.pullEvent('redionet:reload')
+            term.redirect(original_term) -- reset so term.current() points to root term
             on_exit = 'reload'
         end,
         function ()
