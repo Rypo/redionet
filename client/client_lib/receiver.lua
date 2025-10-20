@@ -58,8 +58,9 @@ end
 
 local function play_audio(buffer, state)
     if not buffer or CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
-    local timefmt = ('%d:%02d'):format(math.floor(state.audio_position_sec / 60), math.floor(state.audio_position_sec % 60))
-    UTIL.dbgmon(('- %s - chunk: %d, song: %s, vol: %0.2f'):format(timefmt, state.chunk_id, state.song_id, CSTATE.volume))
+
+    UTIL.dbgmon(('- %ds - chunk: %d, song: %s, vol: %0.2f'):format(state.audio_position_sec, state.chunk_id, state.song_id, CSTATE.volume))
+    os.queueEvent("redionet:audio_timestamp", state.audio_position_sec)
 
     while not speaker.playAudio(buffer, CSTATE.volume) do
         -- local t_full = os.epoch('local')

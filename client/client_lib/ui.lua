@@ -84,6 +84,9 @@ M.state.clicked_result_index = nil
 M.state.loop_mode = 0 -- Local only
 M.state.ui_enabled = true -- alias for (not CSTATE.is_paused) currently
 
+M.state.now_playing_seconds = 0
+M.state.now_playing_artist_line = nil
+
 -- running client in new tab will show a half result if round up
 M.state.search_items_visible = math.floor((config.term_height - config.ui.search_result.start_y) / config.ui.search_result.height)
 
@@ -161,6 +164,21 @@ local function draw_tabs_bar()
     term.write(status_label)
 end
 
+local function write_time_artist(artist_line)
+    if artist_line and artist_line ~= M.state.now_playing_artist_line then
+        M.state.now_playing_seconds = 0
+        M.state.now_playing_artist_line = artist_line
+    end
+
+    if M.state.now_playing_artist_line then
+        -- NOTE: will be malformed if somehow audio longer than 1hr manages to play.
+        local timefmt = ('%d:%02d'):format(math.floor(M.state.now_playing_seconds / 60), math.floor(M.state.now_playing_seconds % 60))
+        set_colors(config.colors.text_secondary, config.colors.bg)
+        term.setCursorPos(2, 4)
+        term.write(("%s/%s"):format(timefmt, M.state.now_playing_artist_line))
+    end
+end
+
 local function draw_now_playing_tab()
     
     -- Song info
@@ -170,9 +188,7 @@ local function draw_now_playing_tab()
         term.setTextColor(config.colors.text)
         term.setCursorPos(2, 3)
         term.write(active_song_meta.name)
-        term.setTextColor(config.colors.text_secondary)
-        term.setCursorPos(2, 4)
-        term.write(active_song_meta.artist)
+        write_time_artist(active_song_meta.artist)
     else
         term.setTextColor(config.colors.text_secondary)
         term.setCursorPos(2, 3)
@@ -711,6 +727,16 @@ function M.ui_loop()
                 function ()
                     os.pullEvent("redionet:redraw_screen")
                     M.redraw_screen()
+                end,
+
+                function ()
+                    while true do
+                        _, M.state.now_playing_seconds = os.pullEvent("redionet:audio_timestamp")
+
+                        if M.state.active_tab == 1 then
+                            write_time_artist()
+                        end
+                    end
                 end
             )
         end
