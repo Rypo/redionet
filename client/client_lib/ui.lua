@@ -44,26 +44,33 @@ config.colors = {
 config.tabs = { " Now Playing ", " Search " }
 
 -- UI layout constants
+
+local xpad = pocket and 0 or 1 -- l/r margins
+local xpos = 1 + xpad -- x start position
+
 config.ui = {
     -- Global Server play button
     server_play_button = {x = config.term_width - 6, y = 1, width = 6, label_play = " START", label_stop = "  HALT", label_wait = "  \183\183\183 "},
     -- Now Playing Tab
-    -- play_button = { x = 2, y = 6, width = 6, label_play = " Play ", label_stop = " Stop "},
-    play_button = { x = 2, y = 6, width = 6, label_play = " Join ", label_stop = " Quit "},
-    skip_button = { x = 10, y = 6, width = 6, label = " Skip " }, -- +1 extra gap 
-    loop_button = { x = 17, y = 6, width = 10, labels = { " Loop Off ", " Loop All ", " Loop One " } },
-    volume_slider = { x = 2, y = 8, width = 25 },
+    play_button =   { x = xpos,      y = 6, width = 6, label_play = " Join ", label_stop = " Quit "},
+    skip_button =   { x = xpos + 8,  y = 6, width = 6, label = " Skip " }, -- +1 extra gap 
+    loop_button =   { x = xpos + 15, y = 6, width = 10, labels = { " Loop Off ", " Loop All ", " Loop One " } },
+    volume_slider = { x = xpos,      y = 8, width = 25 },
     queue = { start_y = 10, height = 2 },
 
     -- Search Tab
-    search_bar = { x = 2, y = 3, width = config.term_width - 2, height = 3 },
-    search_result = { start_y = 7, height = 2 },
+    search_bar = { x = xpos, y = 3, width = config.term_width - 2*xpad, height = 3 },
+    search_result = { start_y = 7, height = 2, duration_caution_mins = 30 },
 
     -- Search Result Menu
-    menu_play_now = { x = 2, y = 6, label = "Play now" },
-    menu_play_next = { x = 2, y = 8, label = "Play next" },
-    menu_add_to_queue = { x = 2, y = 10, label = "Add to queue" },
-    menu_cancel = { x = 2, y = config.term_height, label = "Cancel" },
+    menu_play_now =     { x = xpos, y = 6, label = "Play now" },
+    menu_play_next =    { x = xpos, y = 8, label = "Play next" },
+    menu_add_to_queue = { x = xpos, y = 10, label = "Add to queue" },
+    menu_cancel =       { x = xpos, y = config.term_height, label = "Cancel" },
+
+    -- include metaconfig vals in config.ui 
+    xpad = xpad,
+    xpos = xpos,
 }
 -- Pocket overrides
 config.pocket_ui = {
@@ -174,7 +181,7 @@ local function write_time_artist(artist_line)
         -- NOTE: will be malformed if somehow audio longer than 1hr manages to play.
         local timefmt = ('%d:%02d'):format(math.floor(M.state.now_playing_seconds / 60), math.floor(M.state.now_playing_seconds % 60))
         set_colors(config.colors.text_secondary, config.colors.bg)
-        term.setCursorPos(2, 4)
+        term.setCursorPos(config.ui.xpos, 4)
         term.write(("%s/%s"):format(timefmt, M.state.now_playing_artist_line))
     end
 end
@@ -186,12 +193,12 @@ local function draw_now_playing_tab()
     term.setBackgroundColor(config.colors.bg)
     if active_song_meta then
         term.setTextColor(config.colors.text)
-        term.setCursorPos(2, 3)
+        term.setCursorPos(config.ui.xpos, 3)
         term.write(active_song_meta.name)
         write_time_artist(active_song_meta.artist)
     else
         term.setTextColor(config.colors.text_secondary)
-        term.setCursorPos(2, 3)
+        term.setCursorPos(config.ui.xpos, 3)
         term.write("Server: ")
         if CSTATE.server_state.status == -1 then
             term.write("waiting..")
@@ -203,7 +210,7 @@ local function draw_now_playing_tab()
         --     term.write("Streaming")
         end
         
-        term.setCursorPos(2, 4)
+        term.setCursorPos(config.ui.xpos, 4)
 
         term.write("Client: ")
         if CSTATE.is_paused then
@@ -213,18 +220,18 @@ local function draw_now_playing_tab()
         end
         
     end
-    
-    
+
+
     -- Status message
     local is_loading = CSTATE.server_state.is_loading
     local error_status = CSTATE.server_state.error_status or CSTATE.error_status
     if is_loading then
         term.setTextColor(config.colors.text_tertiary)
-        term.setCursorPos(2, 5)
+        term.setCursorPos(config.ui.xpos, 5)
         term.write("Loading...")
     elseif error_status then
         term.setTextColor(config.colors.error_text)
-        term.setCursorPos(2, 5)
+        term.setCursorPos(config.ui.xpos, 5)
         term.write("Network error: " .. error_status)
     end
 
@@ -290,12 +297,12 @@ local function draw_now_playing_tab()
 
             y = y+1
             term.setTextColor(config.colors.text)
-            term.setCursorPos(2, y)
+            term.setCursorPos(config.ui.xpos, y)
             term.write(song.name)
 
             y = y+1
             term.setTextColor(config.colors.text_secondary)
-            term.setCursorPos(2, y)
+            term.setCursorPos(config.ui.xpos, y)
             term.write(song.artist)
         end
     end
@@ -324,7 +331,6 @@ end
 
 local function write_search_results()
     local sr_cfg = config.ui.search_result
-    local orig_term = term.current()
     local sr_window = window.create(term.current(), 1, sr_cfg.start_y, config.term_width, config.term_height-sr_cfg.start_y)
 
     set_colors(config.colors.text, config.colors.bg, sr_window)
@@ -333,7 +339,7 @@ local function write_search_results()
 
     local sr_subset = search_result_subset()
     if #sr_subset==0 then
-        sr_window.setCursorPos(2, 1)
+        sr_window.setCursorPos(config.ui.xpos, 1)
         sr_window.clearLine()
         sr_window.setTextColor(config.colors.text_secondary)
         sr_window.write("No results found.")
@@ -346,29 +352,25 @@ local function write_search_results()
 
         local result = CSTATE.search_results[k]
         local dur_mins = 60*result.duration.H + result.duration.M
-        local dim_thresh = 30 -- TODO: make config option?
 
         if k == M.state.hl_idx then
             set_colors(config.colors.text_active, config.colors.bg_active, sr_window)
         else
-            set_colors(dur_mins <= dim_thresh and config.colors.text or config.colors.text_tertiary, config.colors.bg, sr_window)
+            set_colors(dur_mins <= sr_cfg.duration_caution_mins and config.colors.text or config.colors.text_tertiary, config.colors.bg, sr_window)
         end
 
-        sr_window.setCursorPos(2, y)
+        sr_window.setCursorPos(config.ui.xpos, y)
         sr_window.clearLine()
         sr_window.write(result.name)
         y = y + 1
-    
-        sr_window.setTextColor(dur_mins <= dim_thresh and config.colors.text_secondary or config.colors.text_tertiary)
 
-        sr_window.setCursorPos(2, y)
+        sr_window.setTextColor(dur_mins <= sr_cfg.duration_caution_mins and config.colors.text_secondary or config.colors.text_tertiary)
+
+        sr_window.setCursorPos(config.ui.xpos, y)
         sr_window.clearLine()
         sr_window.write(result.artist)
         y = y + 1
     end
-    -- sr_window.setVisible(false)
-    -- term.setBackgroundColor(config.colors.black)
-    -- term.redirect(orig_term)
 end
 
 local function write_funding()
@@ -380,11 +382,11 @@ local function write_funding()
         artist='\x10 patreon.com/exclamatory'
     }
 
-    term.setCursorPos(2, y + 1)
+    term.setCursorPos(config.ui.xpos, y + 1)
     term.clearLine()
     term.write(result.name)
 
-    term.setCursorPos(2, y + 2)
+    term.setCursorPos(config.ui.xpos, y + 2)
     term.clearLine()
     term.write(result.artist)
 end
@@ -403,7 +405,7 @@ local function draw_search_tab()
     if CSTATE.search_results then
         write_search_results()
     else
-        term.setCursorPos(2, config.ui.search_result.start_y)
+        term.setCursorPos(config.ui.xpos, config.ui.search_result.start_y)
         if CSTATE.error_status == "SEARCH_ERROR" then
             term.setTextColor(config.colors.error_text)
             term.write("Network error: Search")
@@ -437,11 +439,11 @@ local function draw_search_result_menu()
     term.clear() -- temp removes tabs: [Now Playing ] [ Search ]
 
     local result = CSTATE.search_results[M.state.clicked_result_index]
-    term.setCursorPos(2, 2)
+    term.setCursorPos(config.ui.xpos, 2)
     term.setTextColor(config.colors.text)
     term.write(result.name)
     -- write(result.name .. '\n') -- can't wrap or throws off click index
-    term.setCursorPos(2, 3)
+    term.setCursorPos(config.ui.xpos, 3)
     term.setTextColor(config.colors.text_secondary)
     term.write(result.artist)
 
@@ -500,7 +502,7 @@ end
 local function delay_flash(menu_button)
     -- Click feedback - turn line white breifly on click
     set_colors(config.colors.text_active, config.colors.bg_active)
-    term.setCursorPos(2, menu_button.y)
+    term.setCursorPos(config.ui.xpos, menu_button.y)
     term.clearLine()
     term.write(menu_button.label)
     os.sleep(0.2) -- note: thread events discarded during sleep, okay?  -- https://tweaked.cc/module/_G.html#v:sleep
@@ -601,7 +603,7 @@ local function handle_click(button, x, y)
             local sr_cfg = config.ui.search_result
             for i, k in ipairs(search_result_subset()) do
                 
-                local box = { x = 2, y = sr_cfg.start_y + (i - 1) * sr_cfg.height, width = config.term_width - 2, height = sr_cfg.height }
+                local box = { x = config.ui.xpos, y = sr_cfg.start_y + (i - 1) * sr_cfg.height, width = config.term_width - 2*config.ui.xpad, height = sr_cfg.height }
                 if is_in_box(x, y, box) then
                     M.state.in_search_result_view = true
                     -- M.state.clicked_result_index = i
