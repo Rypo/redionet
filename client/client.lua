@@ -101,10 +101,9 @@ if (monitor and server_settings['redionet.log_level'] == 1) then
         local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
         local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
 
-        local bterm = term.current()
-        term.redirect(monitor)
+        local prev_term = term.redirect(monitor)
         print(log_msg)
-        term.redirect(bterm)
+        term.redirect(prev_term)
     end
 end
 
@@ -116,6 +115,17 @@ local function client_loop()
     speaker = peripheral.find("speaker")
     while true do
         parallel.waitForAny(
+            --[[
+                Client Event
+            ]]
+            function ()
+                os.pullEvent('peripheral_detach')
+                -- speaker or modem detached
+                if (speaker and not peripheral.find('speaker')) or not peripheral.find("modem") then
+                    os.queueEvent('redionet:reload')
+                end
+            end,
+
             --[[
                 Client Event -> Server Message 
             ]]
@@ -198,17 +208,14 @@ local function system_stop_event()
     )
 end
 
-local client_functions = {
+-- Start main client loops
+parallel.waitForAny(
     system_stop_event,
     client_loop,
     ui.ui_loop,
-    net.http_search_loop
-}
--- Only start receiver loop if there is a speaker to play audio
-if speaker then table.insert(client_functions, receiver.receive_loop) end
-
-
-parallel.waitForAny(table.unpack(client_functions))
+    net.http_search_loop,
+    receiver.receive_loop
+)
 
 if     on_exit == 'reload' then shell.run('client')
 elseif on_exit == 'reboot' then os.reboot()

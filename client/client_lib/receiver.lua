@@ -5,12 +5,6 @@
 
 local speaker = peripheral.find("speaker")
 
-if not speaker then
-    -- stub for coms only pocket. TODO: Sensible coms only api.
-    speaker = {
-        stop = function () end
-    }
-end
 
 local M = {}
 
@@ -47,12 +41,15 @@ end
 function M.toggle_play_local()
     if CSTATE.is_paused or CSTATE.is_paused == nil then -- first click nil
         CSTATE.is_paused = false
-        rednet.send(SERVER_ID, 1, 'PROTO_AUDIO_CONNECTION')
+        local status = speaker and 1 or 0 -- speakerless = special case: 0. Syncs but doesn't start receiving
+        rednet.send(SERVER_ID, status, 'PROTO_AUDIO_CONNECTION')
     else
         CSTATE.is_paused = true
-        speaker.stop()
-        rednet.send(SERVER_ID, -1, 'PROTO_AUDIO_CONNECTION')
-        os.queueEvent("redionet:playback_stopped")
+        if speaker then
+            rednet.send(SERVER_ID, -1, 'PROTO_AUDIO_CONNECTION') -- TODO: -1 for special case, 0 for paused
+            os.queueEvent("redionet:playback_stopped")
+            speaker.stop()
+         end
     end
 end
 
@@ -84,6 +81,17 @@ end
 
 
 function M.receive_loop()
+    -- prevent audio loop entry if no speaker attached 
+    if not speaker then
+        while true do
+            local ev, side = os.pullEvent('peripheral')
+            if peripheral.hasType(side, 'speaker') then
+                os.queueEvent('redionet:reload')
+            end
+        end
+    end
+
+
     local id, message
 
     rednet.send(SERVER_ID, CSTATE.is_paused and -1 or 1, 'PROTO_AUDIO_CONNECTION')
