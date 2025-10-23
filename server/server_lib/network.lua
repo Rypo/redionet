@@ -47,7 +47,7 @@ function M.handle_http_download()
                     STATE.data.is_loading = false
                     STATE.data.error_status = false
                     M.state.dl_attempt = 0 -- reset here as well in case looping
-                    
+
                     if STATE.data.response_handle then
                         pcall(STATE.data.response_handle.close) -- Buffer should have closed already, but once more for good measure
                         STATE.data.response_handle = nil
@@ -57,25 +57,27 @@ function M.handle_http_download()
                     STATE.data.response_handle = handle
 
                     os.queueEvent("redionet:audio_ready")
-                    
+
                 elseif event == "http_failure" then
                     local err = eventData[3]
                     STATE.data.is_loading = false
                     STATE.data.error_status = "DOWNLOAD_ERROR"
                     M.state.dl_attempt = M.state.dl_attempt + 1
-                    
+
                     STATE.data.active_stream_id = nil
+
+                    local log_severity = "WARN"
                     if M.state.dl_attempt < M.config.max_dl_attempts then
                         os.queueEvent("redionet:fetch_audio")
                     else
+                        log_severity = "ERROR"
                         err = "Download Retry Limit"
                         STATE.data.status = 0
-                        os.queueEvent("redionet:playback_stopped", STATE.data.error_status)
+                        os.queueEvent("redionet:playback_stopped")
                     end
 
-                    local log_lvl = (M.state.dl_attempt == M.config.max_dl_attempts and "ERROR" or "WARN")
-                    chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, M.state.dl_attempt, M.config.max_dl_attempts), log_lvl)
-                    
+                    chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, M.state.dl_attempt, M.config.max_dl_attempts), log_severity)
+
                     if M.state.dl_attempt == M.config.max_dl_attempts then
                         M.state.dl_attempt = 0 -- allow to go another round of max_attempts if queue up identical song or play->stop->play
                     end
