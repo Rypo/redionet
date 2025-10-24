@@ -12,7 +12,6 @@ rednet.host('PROTO_SERVER', 'server')
 
 local original_term = term.current() -- chat module will redirect term to designated windows. Store it now for reset on reload
 
-local pretty = require("cc.pretty")
 
 local chat = require('server_lib.chat')
 local audio = require("server_lib.audio")
@@ -41,7 +40,7 @@ STATE.data = {
 
 ---broadcast a subset of server state over PROTO_SUB_STATE protocol
 ---@param caller_info? string debugging info to append to redraw event
-function STATE.broadcast(caller_info)
+local function broadcast_state(caller_info)
     -- minimal sub state for audio receivers to use,
     local sub_state = {
         active_song_meta = STATE.data.active_song_meta,
@@ -51,24 +50,9 @@ function STATE.broadcast(caller_info)
         status = STATE.data.status,
         error_status = STATE.data.error_status
     }
-    chat.log_message(('STATE.broadcast: %s'):format(caller_info), 'DEBUG')
+    chat.log_message(('broadcast_state: %s'):format(caller_info), 'DEBUG')
     rednet.broadcast(sub_state, 'PROTO_SUB_STATE')
 end
-
----format state table as string 
----@param state? table state to format, default is unabridged server STATE
----@return string
-function STATE.to_string(state)
-    state = state or STATE.data
-    local d_state = {}
-    for k,v in pairs(state) do
-        if not string.find(k, 'response_handle') then
-            if type(v) ~= "table" or #v < 10 then d_state[k] = v end
-        end
-    end
-    return pretty.render(pretty.pretty(d_state), 20)
-end
-
 
 
 --[[ Server Loops ]]
@@ -134,7 +118,6 @@ local function server_loop()
                     else
                         audio.play_song(payload)
                     end
-                    -- STATE.broadcast()
                 end
 
                 -- always auto play on Queue update unless stopped
@@ -150,7 +133,7 @@ local function server_loop()
                 
                 if code then
                     if code == "STATE" then
-                        STATE.broadcast(('PROTO__PLAYER: STATE'))
+                        broadcast_state('PROTO__PLAYER: STATE')
                     elseif code == "TOGGLE" then
                         audio.toggle_play_pause()
                     elseif code == "SKIP" then
@@ -182,6 +165,13 @@ end
 local function server_event_loop()
     while true do
         parallel.waitForAny(
+            function ()
+                while true do
+                    local ev, origin = os.pullEvent('redionet:broadcast_state')
+                    broadcast_state(origin)
+                end
+            end,
+
             function()
                 local ev, cmd = os.pullEvent('redionet:issue_command')
                 -- need to be cautious about when sync occurs. If timing is off, it will *grow* the speaker buffer rather than clear it

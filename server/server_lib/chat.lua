@@ -2,6 +2,9 @@
     Chat module
     Handles song announcements, information logging, and chat commands
 ]]
+
+local pp = require("cc.pretty")
+
 local w,h = term.getSize()
 local monitor = peripheral.find("monitor")
 
@@ -159,13 +162,13 @@ function M.log_message(message, level)
     local msg_col = loglvl.color[level] or "&7" -- defaults to (light)gray
     
     if type(message) == "table" then
-        message = STATE.to_string(message)
+        message = pp.render(pp.pretty(message))
     end
     
     if level == "ERROR" then
         -- write to logfile
         local log_msg = string.format("[%s] (%s) %s", level, os.date("%Y-%m-%d %H:%M:%S"), message .. "\n")
-        io.open('.logs/server.log', 'a'):write(log_msg):close()
+        pcall(function() io.open('.logs/server.log', 'a'):write(log_msg):close() end) -- ignore io failures
 
         -- write in chat
         chatBox.sendMessage(message, msg_col..level, "[]", msg_col)

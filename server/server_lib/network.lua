@@ -26,7 +26,7 @@ function M.download_song(song_id)
     M.state.last_download_id = song_id
     STATE.data.is_loading = true
     http.request({ url = M.format_download_url(song_id), binary = true })
-    STATE.broadcast("network.download_song")
+    os.queueEvent('redionet:broadcast_state', "network.download_song")
 end
 
 

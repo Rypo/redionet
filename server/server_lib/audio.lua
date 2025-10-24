@@ -510,7 +510,8 @@ function M.audio_loop()
                         event = "redionet:event_cancelled" -- skip the event handling below
                     end
                     
-                    STATE.broadcast("audio_loop - ".. event) -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
+                    -- may trigger more than strictly necessary, but centeralizing eliminates need for a patchwork of calls elsewhere
+                    os.queueEvent('redionet:broadcast_state', "audio_loop - ".. event)
 
                     if event == "redionet:fetch_audio" then
                         local has_data_stream    = (STATE.data.active_stream_id ~= nil)
