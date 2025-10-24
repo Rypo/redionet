@@ -3,8 +3,6 @@
     Handles HTTP requests for downloading audio.
 ]]
 
-local chat = require('server_lib.chat')
-
 local M = {}
 
 M.config = {
@@ -59,27 +57,31 @@ function M.handle_http_download()
                     os.queueEvent("redionet:audio_ready")
 
                 elseif event == "http_failure" then
-                    local err = eventData[3]
-                    STATE.data.is_loading = false
-                    STATE.data.error_status = "DOWNLOAD_ERROR"
                     M.state.dl_attempt = M.state.dl_attempt + 1
 
+                    STATE.data.is_loading = false
+                    STATE.data.error_status = "DOWNLOAD_ERROR"
                     STATE.data.active_stream_id = nil
 
-                    local log_severity = "WARN"
-                    if M.state.dl_attempt < M.config.max_dl_attempts then
-                        os.queueEvent("redionet:fetch_audio")
+                    local severity, err_msg
+                    local try_again = (M.state.dl_attempt < M.config.max_dl_attempts)
+
+                    if try_again then
+                        severity = "WARN"
+                        err_msg = ("%s: %s"):format(STATE.data.error_status, eventData[3])
                     else
-                        log_severity = "ERROR"
-                        err = "Download Retry Limit"
-                        STATE.data.status = 0
-                        os.queueEvent("redionet:playback_stopped")
+                        severity = "ERROR"
+                        err_msg = ("%s: %s"):format(STATE.data.error_status, "Download Retry Limit")
                     end
 
-                    chat.log_message(("%s: %s | Attempt: %d/%d"):format(STATE.data.error_status, err, M.state.dl_attempt, M.config.max_dl_attempts), log_severity)
+                    os.queueEvent('redionet:log_message', ("%s | Attempt: %d/%d"):format(err_msg, M.state.dl_attempt, M.config.max_dl_attempts), severity)
 
-                    if M.state.dl_attempt == M.config.max_dl_attempts then
-                        M.state.dl_attempt = 0 -- allow to go another round of max_attempts if queue up identical song or play->stop->play
+                    if try_again then
+                        os.queueEvent("redionet:fetch_audio")
+                    else
+                        STATE.data.status = 0 -- force play status = stopped
+                        M.state.dl_attempt = 0 -- reset here to allow retry if dupe song or play->stop->play
+                        os.queueEvent("redionet:playback_stopped")
                     end
                 end
             end
