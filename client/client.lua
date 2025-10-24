@@ -34,10 +34,6 @@ CSTATE = {
 }
 
 
--- Global Client Utils
-UTIL = {
-    dbgmon = function (message) end, -- replaced if debug conditions are met, else remains no op
-}
 
 
 local speaker = peripheral.find("speaker")
@@ -87,26 +83,12 @@ if speaker then rednet.host('PROTO_AUDIO', HOST_NAME) else warn_speaker() end
 local server_settings = setup_server_connection()
 
 
--- redefine global util if monitor available and server log level == debug
-if (monitor and server_settings['redionet.log_level'] == 1) then
-    local pp = require('cc.pretty')
-    monitor.setTextScale(0.5)
-
-    function UTIL.dbgmon(message)
-        if type(message) == "table" then
-            message = pp.render(pp.pretty(message), 20)
-        end
-
-        local time_ms = os.epoch("local")
-        local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
-        local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
-
-        local prev_term = term.redirect(monitor)
-        print(log_msg)
-        term.redirect(prev_term)
-    end
+settings.load()
+-- inherit client log level from server unless set locally
+if not settings.get('redionet.log_level') then
+    settings.set('redionet.log_level', server_settings['redionet.log_level'])
+    settings.save()
 end
-
 
 
 --[[ Client Loops ]]

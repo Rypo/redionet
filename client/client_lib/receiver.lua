@@ -6,6 +6,34 @@
 local speaker = peripheral.find("speaker")
 
 
+local dbgmon = function (message) end -- debugging func is no op unless conditions are met
+
+local function debug_init()
+    settings.load() -- lazy to allow client to inherit from server config as needed
+    local monitor = peripheral.find("monitor")
+
+    -- dbgmon redefine conditions: monitor available and log level == debug
+    if (monitor and settings.get('redionet.log_level', 3) == 1) then
+        local pp = require('cc.pretty')
+        monitor.setTextScale(0.5)
+
+        dbgmon = function (message)
+            if type(message) == "table" then
+                message = pp.render(pp.pretty(message))
+            end
+
+            local time_ms = os.epoch("local")
+            local time_ms_fmt = ('%s,%03d'):format(os.date("%H:%M:%S", time_ms/1000), time_ms%1000)
+            local log_msg = ("[DBG] (%s) %s"):format(time_ms_fmt, message)
+
+            local prev_term = term.redirect(monitor)
+            print(log_msg)
+            term.redirect(prev_term)
+        end
+    end
+end
+
+
 local M = {}
 
 ---Update local server state cache
@@ -56,18 +84,18 @@ end
 local function play_audio(buffer, state)
     if not buffer or CSTATE.is_paused or state.active_stream_id ~= state.song_id then return end
 
-    UTIL.dbgmon(('- %ds - chunk: %d, song: %s, vol: %0.2f'):format(state.audio_position_sec, state.chunk_id, state.song_id, CSTATE.volume))
+    dbgmon(('- %ds - chunk: %d, song: %s, vol: %0.2f'):format(state.audio_position_sec, state.chunk_id, state.song_id, CSTATE.volume))
     os.queueEvent("redionet:audio_timestamp", state.audio_position_sec)
 
     while not speaker.playAudio(buffer, CSTATE.volume) do
         -- local t_full = os.epoch('local')
         local t_full = os.epoch('ingame')
-        UTIL.dbgmon('SPEAKER FULL')
+        dbgmon('SPEAKER FULL')
         parallel.waitForAny(
             function()
                 os.pullEvent("speaker_audio_empty")
-                -- UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
-                UTIL.dbgmon(('>>> SPEAKER EMPTY (%sms)'):format((os.epoch('ingame')-t_full)/72)) -- ingame 72ms : 1ms
+                -- dbgmon(('>>> SPEAKER EMPTY (%sms)'):format(os.epoch('local')-t_full))
+                dbgmon(('>>> SPEAKER EMPTY (%sms)'):format((os.epoch('ingame')-t_full)/72)) -- ingame 72ms : 1ms
             end,
             function()
                 os.pullEvent("redionet:playback_stopped")
@@ -91,6 +119,7 @@ function M.receive_loop()
         end
     end
 
+    debug_init()
 
     local id, message
 
