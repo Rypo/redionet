@@ -48,6 +48,33 @@ local function broadcast_state(caller_info)
     rednet.broadcast(STATE.data, 'PROTO_SERVER_STATE')
 end
 
+local function dump_state(filename)
+    filename = filename or '.redionet.state'
+    local state_str = textutils.serialize(STATE.data, {allow_repetitions = true})
+    local handle, err = fs.open(filename, 'w')
+    handle.write(state_str)
+    handle.close()
+end
+
+local function restore_state(filename)
+    filename = filename or '.redionet.state'
+    local handle, err = fs.open(filename, 'r')
+    if handle then
+        local state_data = textutils.unserialize(handle.readAll())
+        handle.close()
+
+        -- stop if was playing. Need time for clients to re-connect
+        if state_data.status == 1 then state_data.status = 0 end
+
+        STATE.data.status           = state_data.status
+        STATE.data.queue            = state_data.queue
+        STATE.data.active_song_meta = state_data.active_song_meta
+        STATE.data.loop_mode        = state_data.loop_mode
+        -- network status info ignored, irrelevant after reset
+
+        pcall(function() fs.delete(filename) end) -- allow fail without compromising restore
+    end
+end
 
 --[[ Server Loops ]]
 
@@ -63,6 +90,8 @@ local function server_loop()
     local rn_config = { -- redionet settings to pass to clients
         ['redionet.log_level'] = settings.get('redionet.log_level', 3),
     }
+
+    pcall(restore_state) -- restore pre-reboot/reload state, if any
 
     local id, message
 
@@ -225,6 +254,7 @@ local function system_stop_event()
             on_exit = 'reboot'
         end
     )
+    pcall(dump_state) -- write state to disk for auto restore
 end
 
 -- Start the main loops
