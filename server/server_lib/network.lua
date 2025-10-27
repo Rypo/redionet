@@ -46,22 +46,22 @@ function M.handle_http_download()
                     STATE.data.error_status = false
                     M.state.dl_attempt = 0 -- reset here as well in case looping
 
-                    if STATE.data.response_handle then
-                        pcall(STATE.data.response_handle.close) -- Buffer should have closed already, but once more for good measure
-                        STATE.data.response_handle = nil
+                    if STATE.response_handle then
+                        pcall(STATE.response_handle.close) -- Buffer should have closed already, but once more for good measure
+                        STATE.response_handle = nil
                     end
 
-                    STATE.data.active_stream_id = M.state.last_download_id
-                    STATE.data.response_handle = handle
+                    STATE.active_stream_id = M.state.last_download_id
+                    STATE.response_handle = handle
 
                     os.queueEvent("redionet:audio_ready")
 
                 elseif event == "http_failure" then
                     M.state.dl_attempt = M.state.dl_attempt + 1
 
+                    STATE.active_stream_id = nil
                     STATE.data.is_loading = false
                     STATE.data.error_status = "DOWNLOAD_ERROR"
-                    STATE.data.active_stream_id = nil
 
                     local severity, err_msg
                     local try_again = (M.state.dl_attempt < M.config.max_dl_attempts)

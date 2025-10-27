@@ -119,8 +119,8 @@ local function client_loop()
                 Server Message -> Client Event
             ]]
             function ()
-                local id, sub_state = rednet.receive('PROTO_SUB_STATE')
-                CSTATE.server_state = sub_state
+                local id, server_state = rednet.receive('PROTO_SERVER_STATE')
+                CSTATE.server_state = server_state
                 os.queueEvent('redionet:redraw_screen')
             end,
             

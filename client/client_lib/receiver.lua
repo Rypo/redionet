@@ -42,8 +42,8 @@ function M.update_server_state(blocking)
     if blocking then
         -- get current server state on join
         rednet.send(SERVER_ID, {"STATE", nil}, "PROTO_SERVER_PLAYER")
-        local id,sub_state = rednet.receive('PROTO_SUB_STATE')
-        CSTATE.server_state = sub_state
+        local id, server_state = rednet.receive('PROTO_SERVER_STATE')
+        CSTATE.server_state = server_state
 
     else
         os.queueEvent('redionet:sync_state')

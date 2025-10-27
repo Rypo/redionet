@@ -19,39 +19,33 @@ local network = require("server_lib.network")
 
 
 --[[ Global Server State ]]
-STATE = {}
-STATE.data = {
-    -- Playback State
-    status = -1,            -- -1=cannot_play/empty/waiting, 0=stopped, 1=streaming 
-    queue = {},             -- song queue, list of objects like active_song_meta
-    active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str, duration={H=int, M=int, S=int}}
-    loop_mode = 0,          -- 0: Off, 1: Queue/List, 2: Song
 
+STATE = {
     -- Audio Network State
-    active_stream_id = nil, -- The MOST important server state value. This ~= nil IFF there is sound coming out of the speakers (aka song is playing).
+    active_stream_id = nil,     -- The MOST important server state value. active_stream_id ~= nil <=> active audio transmission. Excluded from STATE.data to avoid clients ever having stale copy
+    response_handle = nil,      -- ReadHandle from http.request containing binary song data. Non-serializable object
 
-    is_loading = false,     -- set in `network`, get in client.ui
-    error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR, false
-    response_handle = nil,  -- ReadHandle from http.request containing binary song data
+    -- state that clients receive
+    data = {
+        -- Playback State
+        status = -1,            -- -1=cannot_play/empty/waiting, 0=stopped, 1=streaming 
+        queue = {},             -- song queue, list of objects like active_song_meta
+        active_song_meta = nil, -- Metadata for the song in the player {id=str, name=str, artist=str, duration={H=int, M=int, S=int}}
+        loop_mode = 0,          -- 0: Off, 1: Queue/List, 2: Song
+
+        -- Network Status Info
+        is_loading = false,     -- set in `network`, get in client.ui
+        error_status = false,   -- PLAYBACK_ERROR, DOWNLOAD_ERROR, false
+    }
 }
 
 
--- State Functions
-
----broadcast a subset of server state over PROTO_SUB_STATE protocol
----@param caller_info? string debugging info to append to redraw event
+---broadcast server state data over PROTO_SERVER_STATE protocol
+---@param caller_info? string origin debugging info to log
 local function broadcast_state(caller_info)
-    -- minimal sub state for audio receivers to use,
-    local sub_state = {
-        active_song_meta = STATE.data.active_song_meta,
-        queue = STATE.data.queue,
-        is_loading = STATE.data.is_loading,
-        loop_mode = STATE.data.loop_mode,
-        status = STATE.data.status,
-        error_status = STATE.data.error_status
-    }
     chat.log_message(('broadcast_state: %s'):format(caller_info), 'DEBUG')
-    rednet.broadcast(sub_state, 'PROTO_SUB_STATE')
+    -- event data is always copied, client-side mutability not a concern
+    rednet.broadcast(STATE.data, 'PROTO_SERVER_STATE')
 end
 
 
