@@ -135,15 +135,17 @@ end
 
 -- --[[ // begin filler code  ]]
 local _MOCK_CHAT_BOX = {
-    sendToastToPlayer =
-    function (message, title, username, paren_text, paren_style, paren_color)
+    sendToast =
+    function (options)
+        local paren_text, paren_style, paren_color = options.prefix, options.brackets, options.bracketsColor
         local paren_label = format_paren(paren_text, paren_style, paren_color)
-        local song_string = ("@%s:\n%s\n%s %s"):format(username, title, paren_label, message)
+        local song_string = ("@%s:\n%s\n%s %s"):format(options.player, options.title, paren_label, options.message)
         motd_to_termcolor(song_string)
     end,
 
     sendMessage =
-    function (message, paren_text, paren_style, paren_color)
+    function (message, options)
+        local paren_text, paren_style, paren_color = options.prefix, options.brackets, options.bracketsColor
         local paren_label = format_paren(paren_text, paren_style, paren_color)
         local message_string = paren_label.." "..message
         motd_to_termcolor(message_string)
@@ -166,16 +168,70 @@ local loglvl = {
 }
 
 
+-- Helper code to operate chat box on both 0.7 and 0.8
+-- --[[ // begin helper code  ]]
+
+local is_ap_0_8 = false
+if advancedperipherals and advancedperipherals.getAPVersion then
+    local major, minor = advancedperipherals.getAPVersion():match('^(%d+)%.(%d+)%.')
+    if major ~= nil and (tonumber(major) > 0 or tonumber(minor) >= 8) then
+        is_ap_0_8 = true
+    end
+end
+
+local function sendChatBoxToast(chatBox, options)
+    if is_ap_0_8 or chatBox == _MOCK_CHAT_BOX then
+        return chatBox.sendToast(options)
+    end
+    return chatBox.sendToastToPlayer(
+        options.message,
+        options.title,
+        options.player,
+        options.prefix,
+        options.brackets,
+        options.bracketsColor
+    )
+end
+
+local function sendChatBoxMessage(chatBox, message, options)
+    if is_ap_0_8 or chatBox == _MOCK_CHAT_BOX then
+        return chatBox.sendMessage(message, options)
+    end
+    return chatBox.sendMessage(
+        message,
+        options.prefix,
+        options.brackets,
+        options.bracketsColor
+    )
+end
+
+-- --[[  end helper code // ]]
+
 function M.announce_song(artist, song_title)
     -- Song notification in chat
     if not playerDetector then
         local label_col, artist_col, song_col = "&e", "&c", "&f&o" -- yellow, light_red, white-italic
-        return chatBox.sendMessage(artist_col..artist.."&r - "..song_col..song_title, label_col.."Now Playing", "[]", label_col) -- &r : reset style
+        return sendChatBoxMessage(
+            chatBox,
+            artist_col..artist.."&r - "..song_col..song_title, -- &r : reset style
+            {
+                prefix = label_col.."Now Playing",
+                brackets = "[]",
+                bracketsColor = label_col,
+            }
+        )
     end
 
     -- Fancy song notification in upper right of screen
     for i, username in ipairs(playerDetector.getOnlinePlayers()) do
-        chatBox.sendToastToPlayer(song_title, "Now Playing", username, "&4&l"..artist, "()", "&c&l") -- dark_red-bold, light_red-bold
+        sendChatBoxToast(chatBox, {
+            message = song_title,
+            title = "Now Playing",
+            player = username,
+            prefix = "&4&l"..artist, -- dark_red-bold
+            brackets = "()",
+            bracketsColor = "&c&l" -- light_red-bold
+        })
     end
     
 end
@@ -202,7 +258,15 @@ function M.log_message(message, level)
         pcall(function() io.open('.logs/server.log', 'a'):write(log_msg):close() end) -- ignore io failures
 
         -- write in chat
-        chatBox.sendMessage(message, msg_col..level, "[]", msg_col)
+        sendChatBoxMessage(
+            chatBox,
+            message,
+            {
+                prefix = msg_col..level,
+                brackets = "[]",
+                bracketsColor = msg_col,
+            }
+        )
     else
         -- write in console if < error
         motd_to_termcolor(("%s %s"):format(format_paren(msg_col..level, "[]", msg_col), message))
@@ -314,7 +378,15 @@ function M.chat_loop()
                     if ishidden then
                         M.log_message(response, "INFO")
                     else
-                        chatBox.sendMessage(response, '&2'..'CMD', "[]", '&f') -- dark_green, white
+                        sendChatBoxMessage(
+                            chatBox,
+                            response,
+                            {
+                                prefix = '&2'..'CMD', -- dark_green
+                                brackets = "[]",
+                                bracketsColor = '&f', -- white
+                            }
+                        )
                     end
 
                     os.queueEvent('redionet:issue_command', cmd)
